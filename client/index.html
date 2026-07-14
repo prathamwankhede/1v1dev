@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>1v1dev — Real-time Coding Race</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="glow-bg"></div>
+  <div class="container">
+    <header>
+      <div class="logo">1v1<span>dev</span></div>
+      <div id="status-pill" class="status-pill offline">Connecting</div>
+    </header>
+    
+    <main>
+      <div class="lobby-card">
+        <h1>Coding Arena</h1>
+        <p class="subtitle">Prepare for the ultimate agent-assisted programming showdown.</p>
+        
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-value" id="player-count">0</span>
+            <span class="stat-label">Racers Connected</span>
+          </div>
+        </div>
+
+        <div class="action-zone">
+          <p id="lobby-message" class="pulse">Establishing link to server...</p>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
