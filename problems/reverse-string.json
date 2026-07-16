@@ -1,0 +1,23 @@
+{
+    "id": "reverse-string",
+    "title": "Reverse String",
+    "description": "Given a string, print it reversed.\n\nInput Format:\n  A single line containing the string to reverse.\n\nOutput Format:\n  The reversed string.\n\nExample:\n  Input:\n    hello\n  Output:\n    olleh\n\nNote: The string may contain spaces and special characters.",
+    "starterCode": {
+        "python": "s = input()\n\n# Your solution here\n",
+        "javascript": "const readline = require('readline');\nconst rl = readline.createInterface({ input: process.stdin });\nrl.on('line', (line) => {\n\n  // Your solution here\n\n  rl.close();\n});\n"
+    },
+    "testCases": [
+        {
+            "input": "hello",
+            "expectedOutput": "olleh"
+        },
+        {
+            "input": "racecar",
+            "expectedOutput": "racecar"
+        },
+        {
+            "input": "hello world",
+            "expectedOutput": "dlrow olleh"
+        }
+    ]
+}

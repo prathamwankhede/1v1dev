@@ -4,37 +4,185 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>1v1dev — Real-time Coding Race</title>
+  <meta name="description" content="Head-to-head coding race platform. Compete in real-time to solve algorithmic challenges.">
+
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+  <!-- CodeMirror 5 from CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/material-darker.min.css">
+
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="glow-bg"></div>
-  <div class="container">
-    <header>
-      <div class="logo">1v1<span>dev</span></div>
-      <div id="status-pill" class="status-pill offline">Connecting</div>
-    </header>
-    
-    <main>
-      <div class="lobby-card">
-        <h1>Coding Arena</h1>
-        <p class="subtitle">Prepare for the ultimate agent-assisted programming showdown.</p>
-        
-        <div class="stats-grid">
-          <div class="stat-box">
-            <span class="stat-value" id="player-count">0</span>
-            <span class="stat-label">Racers Connected</span>
+
+  <!-- ═══════════════ LOBBY VIEW ═══════════════ -->
+  <div id="view-lobby" class="view active">
+    <div class="container">
+      <header>
+        <div class="logo">1v1<span>dev</span></div>
+        <div id="status-pill" class="status-pill offline">Connecting</div>
+      </header>
+
+      <main>
+        <div class="lobby-card">
+          <h1>Coding Arena</h1>
+          <p class="subtitle">Prepare for the ultimate agent-assisted programming showdown.</p>
+
+          <div class="stats-grid">
+            <div class="stat-box">
+              <span class="stat-value" id="player-count">0</span>
+              <span class="stat-label">Racers Online</span>
+            </div>
+          </div>
+
+          <div class="join-form" id="join-form">
+            <input
+              type="text"
+              id="player-name-input"
+              class="name-input"
+              placeholder="Enter your handle..."
+              maxlength="20"
+              autocomplete="off"
+            >
+            <button id="find-match-btn" class="btn-primary" disabled>Find Match</button>
+          </div>
+
+          <div class="action-zone">
+            <p id="lobby-message" class="pulse">Establishing link to server...</p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══════════════ RACE VIEW ═══════════════ -->
+  <div id="view-race" class="view">
+    <div class="race-layout">
+      <!-- Top Bar -->
+      <div class="race-topbar">
+        <div class="topbar-left">
+          <div class="logo-sm">1v1<span>dev</span></div>
+          <div class="timer-display">
+            <svg class="timer-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span id="race-timer">00:00</span>
+          </div>
+        </div>
+        <div class="topbar-center">
+          <span class="vs-label">vs</span>
+          <span id="opponent-name" class="opponent-name">Opponent</span>
+        </div>
+        <div class="topbar-right">
+          <div id="opponent-status-badge" class="opp-status writing">
+            <span class="opp-status-dot"></span>
+            <span id="opponent-status-text">Writing</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Race Content -->
+      <div class="race-panels">
+        <!-- Problem Panel -->
+        <div class="panel problem-panel">
+          <div class="panel-header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            <h2 id="problem-title">Problem</h2>
+          </div>
+          <div class="panel-body" id="problem-description">
+            <!-- Problem text rendered here -->
+          </div>
+          <div class="test-cases-section">
+            <h3>Example Test Cases</h3>
+            <div id="test-cases-container">
+              <!-- Test cases rendered here -->
+            </div>
           </div>
         </div>
 
-        <div class="action-zone">
-          <p id="lobby-message" class="pulse">Establishing link to server...</p>
+        <!-- Editor Panel -->
+        <div class="panel editor-panel">
+          <div class="panel-header">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+            </svg>
+            <h2>Your Code</h2>
+            <div class="editor-controls">
+              <select id="language-select" class="lang-select">
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript</option>
+              </select>
+            </div>
+          </div>
+          <div class="editor-wrapper" id="editor-container">
+            <!-- CodeMirror mounts here -->
+          </div>
+          <div class="editor-footer">
+            <button id="submit-btn" class="btn-submit" disabled>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+              </svg>
+              Submit Solution
+            </button>
+          </div>
         </div>
       </div>
-    </main>
+    </div>
+
+    <!-- Countdown Overlay -->
+    <div id="countdown-overlay" class="countdown-overlay">
+      <div id="countdown-number" class="countdown-number">5</div>
+    </div>
   </div>
+
+  <!-- ═══════════════ RESULT VIEW ═══════════════ -->
+  <div id="view-result" class="view">
+    <div class="container">
+      <header>
+        <div class="logo">1v1<span>dev</span></div>
+      </header>
+      <main>
+        <div class="result-card">
+          <div id="result-icon" class="result-icon">🏆</div>
+          <h1 id="result-title" class="result-title">VICTORY</h1>
+          <p id="result-subtitle" class="result-subtitle">You were the fastest coder!</p>
+
+          <div class="result-details">
+            <div class="result-player you">
+              <span class="result-player-label">You</span>
+              <span class="result-player-name" id="result-your-name">—</span>
+              <span class="result-player-time" id="result-your-time">—</span>
+            </div>
+            <div class="result-divider">
+              <span>VS</span>
+            </div>
+            <div class="result-player opponent">
+              <span class="result-player-label">Opponent</span>
+              <span class="result-player-name" id="result-opp-name">—</span>
+              <span class="result-player-time" id="result-opp-time">—</span>
+            </div>
+          </div>
+
+          <button id="play-again-btn" class="btn-primary">Play Again</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- CodeMirror JS (loaded before app.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/javascript/javascript.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

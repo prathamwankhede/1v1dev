@@ -20,14 +20,14 @@ Currently, the project is in **Phase 0: Skeleton & Local Dev Loop**.
 
 ## Repository Structure
 
-- [server/main.py](file:///Users/prathamwankhede/Documents/1v1dev/server/main.py) — Asynchronous `aiohttp` server and websocket handler.
-- [client/](file:///Users/prathamwankhede/Documents/1v1dev/client) — Frontend assets:
-  - [index.html](file:///Users/prathamwankhede/Documents/1v1dev/client/index.html) — Main web interface (Coding Arena UI)
-  - [style.css](file:///Users/prathamwankhede/Documents/1v1dev/client/style.css) — Premium glowing modern dark-mode styles
-  - [app.js](file:///Users/prathamwankhede/Documents/1v1dev/client/app.js) — WebSocket connection & UI interaction logic
-- [tests/test_smoke.py](file:///Users/prathamwankhede/Documents/1v1dev/tests/test_smoke.py) — Smoke integration tests for server/WebSocket connectivity.
-- [requirements.txt](file:///Users/prathamwankhede/Documents/1v1dev/requirements.txt) — Python dependency definition.
-- [implementation_plan.md](file:///Users/prathamwankhede/Documents/1v1dev/implementation_plan.md) — Architectural details and phase breakdowns.
+- [server/main.py] — Asynchronous `aiohttp` server and websocket handler.
+- [client/] — Frontend assets:
+  - [index.html] — Main web interface (Coding Arena UI)
+  - [style.css] — Premium glowing modern dark-mode styles
+  - [app.js] — WebSocket connection & UI interaction logic
+- [tests/test_smoke.py] — Smoke integration tests for server/WebSocket connectivity.
+- [requirements.txt] — Python dependency definition.
+- [implementation_plan.md] — Architectural details and phase breakdowns.
 
 ---
 

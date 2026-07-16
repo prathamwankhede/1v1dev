@@ -1,17 +1,28 @@
+"""1v1dev race server — HTTP + WebSocket entry point.
+
+Serves static client files and manages WebSocket connections
+for the lobby, matchmaking, and race rooms.
+"""
+
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
+# Ensure project root is on sys.path for package imports
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+import aiohttp
 from aiohttp import web
 
-CLIENT_DIR = Path(__file__).resolve().parent.parent / "client"
+from server.problems import ProblemBank
+from server.lobby import Lobby
 
-MIME_TYPES = {
-    ".html": "text/html",
-    ".css": "text/css",
-    ".js": "application/javascript",
-}
+CLIENT_DIR = Path(__file__).resolve().parent.parent / "client"
+PROBLEMS_DIR = Path(__file__).resolve().parent.parent / "problems"
 
 
 async def broadcast_player_count(app):
@@ -26,16 +37,48 @@ async def broadcast_player_count(app):
 
 
 async def websocket_handler(request):
+    """Handle a WebSocket connection: lobby join, submissions, disconnect."""
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     request.app["clients"].add(ws)
     await broadcast_player_count(request.app)
+
+    lobby: Lobby = request.app["lobby"]
+
     try:
-        async for _msg in ws:
-            pass  # No client→server messages in Phase 0
+        async for msg in ws:
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                    msg_type = data.get("type")
+
+                    if msg_type == "join":
+                        player_name = data.get("playerName", "Anonymous").strip()
+                        if not player_name:
+                            player_name = "Anonymous"
+                        await lobby.add_player(ws, player_name)
+
+                    elif msg_type == "submit":
+                        room = lobby.get_room(ws)
+                        if room:
+                            await room.handle_submit(
+                                ws,
+                                data.get("code", ""),
+                                data.get("language", "python"),
+                            )
+                    elif msg_type == "playAgain":
+                        # Remove from current room and allow re-queue
+                        lobby.remove_player(ws)
+
+                except json.JSONDecodeError:
+                    pass
+            elif msg.type == aiohttp.WSMsgType.ERROR:
+                break
     finally:
         request.app["clients"].discard(ws)
+        lobby.remove_player(ws)
         await broadcast_player_count(request.app)
+
     return ws
 
 
@@ -54,6 +97,14 @@ async def static_handler(request):
 def create_app():
     app = web.Application()
     app["clients"] = set()
+
+    # Load problem bank
+    problem_bank = ProblemBank(PROBLEMS_DIR)
+    app["problem_bank"] = problem_bank
+
+    # Create lobby with the problem bank
+    app["lobby"] = Lobby(problem_bank)
+
     app.router.add_get("/ws", websocket_handler)
     app.router.add_get("/{path:.*}", static_handler)
     return app

@@ -1,0 +1,23 @@
+{
+    "id": "fizz-buzz",
+    "title": "FizzBuzz",
+    "description": "Print the numbers from 1 to N, but with a twist:\n\n- For multiples of 3, print \"Fizz\" instead of the number.\n- For multiples of 5, print \"Buzz\" instead of the number.\n- For multiples of both 3 and 5, print \"FizzBuzz\" instead of the number.\n- Otherwise, print the number itself.\n\nEach value should be on its own line.\n\nInput Format:\n  A single integer N\n\nOutput Format:\n  N lines of output\n\nExample:\n  Input:\n    5\n  Output:\n    1\n    2\n    Fizz\n    4\n    Buzz",
+    "starterCode": {
+        "python": "n = int(input())\n\n# Your solution here\n",
+        "javascript": "const readline = require('readline');\nconst rl = readline.createInterface({ input: process.stdin });\nrl.on('line', (line) => {\n  const n = parseInt(line);\n\n  // Your solution here\n\n  rl.close();\n});\n"
+    },
+    "testCases": [
+        {
+            "input": "5",
+            "expectedOutput": "1\n2\nFizz\n4\nBuzz"
+        },
+        {
+            "input": "15",
+            "expectedOutput": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz"
+        },
+        {
+            "input": "1",
+            "expectedOutput": "1"
+        }
+    ]
+}
