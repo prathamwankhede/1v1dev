@@ -14,11 +14,12 @@ from server.room import Room, RoomState
 class Lobby:
     """Manages the waiting queue and active rooms."""
 
-    def __init__(self, problem_bank):
+    def __init__(self, problem_bank, judge=None):
         self.queue = []           # list of { "ws": ..., "name": ... }
         self.rooms = {}           # room_id → Room
         self.player_rooms = {}    # ws → room_id
         self.problem_bank = problem_bank
+        self.judge = judge
 
     async def add_player(self, ws, name):
         """Add a player to the matchmaking queue.
@@ -44,7 +45,7 @@ class Lobby:
         """Create a room, notify both players, and start the countdown."""
         room_id = uuid.uuid4().hex[:8]
         problem = self.problem_bank.get_random()
-        room = Room(room_id, player1, player2, problem)
+        room = Room(room_id, player1, player2, problem, judge=self.judge)
 
         self.rooms[room_id] = room
         self.player_rooms[player1["ws"]] = room_id
