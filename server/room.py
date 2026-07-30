@@ -10,6 +10,8 @@ import asyncio
 import json
 import time
 
+from server.agents.registry import build_agent
+
 
 class RoomState:
     COUNTDOWN = "countdown"
@@ -21,6 +23,8 @@ class RoomState:
 class Room:
     COUNTDOWN_SECONDS = 5
     RACE_TIMEOUT_SECONDS = 120  # 2 minutes
+    AGENT_TIMEOUT_SECONDS = 60
+    AGENT_HISTORY_LIMIT = 20  # messages (10 player/agent turn pairs), FIFO
 
     def __init__(self, room_id, player1, player2, problem, judge=None):
         """Create a new room.
@@ -38,6 +42,7 @@ class Room:
         self.judge = judge
         self.state = RoomState.COUNTDOWN
         self.submissions = {}  # player_name → { code, language, timestamp }
+        self.agent_sessions = {}  # player_name → [{ role, content }, ...]
         self.race_start_time = None
         self._timeout_task = None
         self._countdown_task = None
@@ -152,6 +157,77 @@ class Room:
         # If both players have submitted, resolve immediately
         if len(self.submissions) >= 2:
             await self.resolve()
+
+    # ── Agent prompting ────────────────────────────────────────
+    # The agent is a copilot the player directs — it never submits on its
+    # own. A prompt only ever returns code to the requesting player; the
+    # player still has to click Submit themselves for the race to resolve.
+
+    def _build_agent_context(self, language, current_code, history, instruction):
+        """Assemble the full prompt sent to the agent for one turn."""
+        parts = [
+            "You are pair-programming with a player racing to solve this "
+            f"problem. Respond with the complete updated solution in a "
+            f"single {language} code block.",
+            f"Problem: {self.problem['title']}\n{self.problem['description']}",
+        ]
+
+        starter = self.problem.get("starterCode", {}).get(language, "")
+        if current_code:
+            parts.append(f"Player's current code:\n```{language}\n{current_code}\n```")
+        elif starter:
+            parts.append(f"Starter code:\n```{language}\n{starter}\n```")
+
+        for turn in history:
+            speaker = "Player" if turn["role"] == "user" else "Agent"
+            parts.append(f"{speaker}: {turn['content']}")
+
+        parts.append(f"Player: {instruction}")
+        return "\n\n".join(parts)
+
+    async def handle_agent_prompt(self, ws, agent_type, config, instruction, language, current_code):
+        """Run one agent turn for a player and return code to them only.
+
+        Never resolves the race — that still requires an explicit submit.
+        """
+        if self.state != RoomState.RACING:
+            await self.send_to(
+                self.get_player(ws) or {"ws": ws},
+                {"type": "agentStatus", "status": "error", "message": "Agent prompts only accepted during race."},
+            )
+            return
+
+        player = self.get_player(ws)
+        if not player:
+            return
+        name = player["name"]
+
+        history = self.agent_sessions.setdefault(name, [])
+        context = self._build_agent_context(language, current_code, history, instruction)
+
+        opponent = self.get_opponent(ws)
+        if opponent:
+            await self.send_to(opponent, {"type": "opponentStatus", "status": "agent-thinking"})
+
+        try:
+            agent = build_agent(agent_type, {**config, "language": language})
+            result = await asyncio.wait_for(agent.run(context), timeout=self.AGENT_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            await self.send_to(player, {"type": "agentStatus", "status": "error", "message": "Agent timed out."})
+        except Exception as e:
+            await self.send_to(player, {"type": "agentStatus", "status": "error", "message": str(e)})
+        else:
+            history.append({"role": "user", "content": instruction})
+            history.append({"role": "agent", "content": result["code"]})
+            del history[: -self.AGENT_HISTORY_LIMIT]
+            await self.send_to(
+                player,
+                {"type": "agentResponse", "code": result["code"], "log": result.get("log", "")},
+            )
+
+        if opponent:
+            status = "using-agent" if self.agent_sessions.get(name) else "writing"
+            await self.send_to(opponent, {"type": "opponentStatus", "status": status})
 
     # ── Resolution ─────────────────────────────────────────────
 

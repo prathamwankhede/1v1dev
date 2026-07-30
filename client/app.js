@@ -30,6 +30,15 @@ const submitBtn = document.getElementById('submit-btn');
 const countdownOverlay = document.getElementById('countdown-overlay');
 const countdownNumber = document.getElementById('countdown-number');
 
+// Agent panel
+const agentTypeSelect = document.getElementById('agent-type-select');
+const agentModelInput = document.getElementById('agent-model-input');
+const agentBaseUrlInput = document.getElementById('agent-baseurl-input');
+const agentApiKeyInput = document.getElementById('agent-apikey-input');
+const agentInstructionInput = document.getElementById('agent-instruction-input');
+const agentAskBtn = document.getElementById('agent-ask-btn');
+const agentStatusEl = document.getElementById('agent-status');
+
 // Result
 const resultCard = document.querySelector('.result-card');
 const resultIcon = document.getElementById('result-icon');
@@ -151,9 +160,45 @@ function setOpponentStatus(status) {
     writing: 'Writing',
     submitted: 'Submitted',
     disconnected: 'Disconnected',
+    'agent-thinking': 'Agent Thinking',
+    'using-agent': 'Using Agent',
   };
   opponentStatusText.textContent = labels[status] || status;
 }
+
+// ── Agent Prompting ─────────────────────────────────
+// The agent is a copilot the player directs — it never submits on its own.
+// A response only loads code into the editor for the player to review.
+
+agentTypeSelect.addEventListener('change', () => {
+  const isCustom = agentTypeSelect.value === 'openai-compatible';
+  agentBaseUrlInput.style.display = isCustom ? '' : 'none';
+});
+
+function setAgentStatus(message, isError) {
+  agentStatusEl.textContent = message || '';
+  agentStatusEl.classList.toggle('error', !!isError);
+}
+
+agentAskBtn.addEventListener('click', () => {
+  const instruction = agentInstructionInput.value.trim();
+  if (!instruction || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!editor) return;
+
+  agentAskBtn.disabled = true;
+  setAgentStatus('Asking agent...', false);
+
+  ws.send(JSON.stringify({
+    type: 'agentPrompt',
+    agentType: agentTypeSelect.value,
+    model: agentModelInput.value.trim(),
+    baseUrl: agentBaseUrlInput.value.trim(),
+    apiKey: agentApiKeyInput.value,
+    language: languageSelect.value,
+    instruction,
+    code: editor.getValue(),
+  }));
+});
 
 // ── Result Rendering ────────────────────────────────
 function showResult(data) {
@@ -257,6 +302,9 @@ function handleMessage(data) {
       opponentNameEl.textContent = data.opponent;
       hasSubmitted = false;
       setOpponentStatus('writing');
+      setAgentStatus('', false);
+      agentInstructionInput.value = '';
+      agentAskBtn.disabled = false;
       // Show race view (countdown overlay will be visible on top)
       showView('race');
       countdownOverlay.classList.add('active');
@@ -307,6 +355,20 @@ function handleMessage(data) {
 
     case 'result':
       showResult(data);
+      break;
+
+    case 'agentResponse':
+      agentAskBtn.disabled = false;
+      setAgentStatus('Agent responded — review before submitting.', false);
+      if (editor) editor.setValue(data.code || '');
+      agentInstructionInput.value = '';
+      break;
+
+    case 'agentStatus':
+      agentAskBtn.disabled = false;
+      if (data.status === 'error') {
+        setAgentStatus(data.message || 'Agent error.', true);
+      }
       break;
 
     case 'error':
@@ -384,6 +446,9 @@ playAgainBtn.addEventListener('click', () => {
   findMatchBtn.disabled = false;
   lobbyMessage.textContent = 'Ready for another round!';
   lobbyMessage.classList.remove('pulse');
+  setAgentStatus('', false);
+  agentInstructionInput.value = '';
+  agentAskBtn.disabled = false;
 
   // Tell server we want to play again (removes from old room)
   if (ws && ws.readyState === WebSocket.OPEN) {

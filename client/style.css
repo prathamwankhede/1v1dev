@@ -589,6 +589,114 @@ h1 {
   border-right: 1px solid var(--border-subtle);
 }
 
+/* Agent Panel */
+.agent-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border-card);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.agent-panel-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.agent-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-input:focus {
+  border-color: var(--neon-purple);
+}
+
+.agent-instruction {
+  background: var(--bg-input);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  padding: 0.5rem 0.7rem;
+  outline: none;
+  resize: none;
+  flex: 1;
+}
+
+.agent-instruction:focus {
+  border-color: var(--neon-purple);
+}
+
+.btn-agent {
+  background: linear-gradient(135deg, var(--neon-purple), var(--neon-blue));
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 1.25rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  align-self: flex-end;
+}
+
+.btn-agent:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(168, 85, 247, 0.4);
+}
+
+.btn-agent:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.agent-status {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  min-height: 1em;
+}
+
+.agent-status.error {
+  color: var(--neon-red);
+}
+
+.opp-status.agent-thinking {
+  background: rgba(168, 85, 247, 0.1);
+  color: var(--neon-purple);
+  border-color: rgba(168, 85, 247, 0.2);
+}
+
+.opp-status.agent-thinking .opp-status-dot {
+  background: var(--neon-purple);
+  animation: blink 1s infinite;
+}
+
+.opp-status.using-agent {
+  background: rgba(168, 85, 247, 0.1);
+  color: var(--neon-purple);
+  border-color: rgba(168, 85, 247, 0.2);
+}
+
+.opp-status.using-agent .opp-status-dot {
+  background: var(--neon-purple);
+  box-shadow: 0 0 8px var(--neon-purple);
+}
+
 .editor-footer {
   display: flex;
   justify-content: flex-end;

@@ -127,6 +127,25 @@
           <div class="editor-wrapper" id="editor-container">
             <!-- CodeMirror mounts here -->
           </div>
+
+          <!-- Agent Panel: the player directs the agent; it never submits on its own -->
+          <div class="agent-panel">
+            <div class="agent-panel-row">
+              <select id="agent-type-select" class="lang-select">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai-compatible">Custom (OpenAI-compatible)</option>
+              </select>
+              <input type="text" id="agent-model-input" class="agent-input" placeholder="Model (e.g. claude-sonnet-5)">
+              <input type="text" id="agent-baseurl-input" class="agent-input agent-baseurl" placeholder="Base URL (custom only)" style="display:none;">
+              <input type="password" id="agent-apikey-input" class="agent-input" placeholder="API key" autocomplete="off">
+            </div>
+            <div class="agent-panel-row">
+              <textarea id="agent-instruction-input" class="agent-instruction" placeholder="Tell the agent what to do, e.g. &quot;write a solution using a hash map&quot;..." rows="2"></textarea>
+              <button id="agent-ask-btn" class="btn-agent">Ask Agent</button>
+            </div>
+            <div id="agent-status" class="agent-status"></div>
+          </div>
+
           <div class="editor-footer">
             <button id="submit-btn" class="btn-submit" disabled>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">

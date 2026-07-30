@@ -75,6 +75,22 @@ async def websocket_handler(request):
                             )
                         else:
                             print(f"[WS] ⚠ No room found! player_rooms keys: {[id(k) for k in lobby.player_rooms.keys()]}")
+                    elif msg_type == "agentPrompt":
+                        room = lobby.get_room(ws)
+                        if room:
+                            config = {
+                                "base_url": data.get("baseUrl"),
+                                "model": data.get("model"),
+                                "api_key": data.get("apiKey"),
+                            }
+                            await room.handle_agent_prompt(
+                                ws,
+                                data.get("agentType"),
+                                config,
+                                data.get("instruction", ""),
+                                data.get("language", "python"),
+                                data.get("code", ""),
+                            )
 
                     elif msg_type == "playAgain":
                         # Remove from current room and allow re-queue
