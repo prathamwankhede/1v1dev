@@ -1,11 +1,13 @@
 """Agent registry — maps a client-supplied agent type to its adapter."""
 
 from server.agents.anthropic import AnthropicAgent
+from server.agents.claude_code import ClaudeCodeAgent
 from server.agents.openai_compatible import OpenAICompatibleAgent
 
 AGENT_TYPES = {
     "anthropic": AnthropicAgent,
     "openai-compatible": OpenAICompatibleAgent,
+    "claude-code": ClaudeCodeAgent,
 }
 
 

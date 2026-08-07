@@ -68,6 +68,20 @@ PORT=8080 python server/main.py
 
 Open multiple browser tabs at `http://localhost:3000` to see real-time player count synchronization via WebSockets!
 
+### Using your local Claude Code
+
+The "Local Claude Code" agent option shells out to a `claude` CLI already installed and logged in
+on the machine running the server — no API key needed, since it uses that CLI's existing local
+auth. It's off by default and intended for local dev / LAN play only (anyone who can reach the
+server spends the host's Claude quota). To enable it:
+
+```bash
+ENABLE_LOCAL_CLAUDE_CODE=1 python server/main.py
+```
+
+Requires `claude` on `PATH` (or set `CLAUDE_CLI_PATH` to its location) and an already-logged-in
+CLI session.
+
 ### Running Tests
 
 Execute the test suite to verify server routing and WebSocket connectivity:

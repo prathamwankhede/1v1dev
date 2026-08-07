@@ -172,7 +172,12 @@ function setOpponentStatus(status) {
 
 agentTypeSelect.addEventListener('change', () => {
   const isCustom = agentTypeSelect.value === 'openai-compatible';
+  const isLocalClaudeCode = agentTypeSelect.value === 'claude-code';
   agentBaseUrlInput.style.display = isCustom ? '' : 'none';
+  agentApiKeyInput.style.display = isLocalClaudeCode ? 'none' : '';
+  agentModelInput.placeholder = isLocalClaudeCode
+    ? 'Model (optional — e.g. sonnet, opus)'
+    : 'Model (e.g. claude-sonnet-5)';
 });
 
 function setAgentStatus(message, isError) {

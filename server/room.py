@@ -43,6 +43,7 @@ class Room:
         self.state = RoomState.COUNTDOWN
         self.submissions = {}  # player_name → { code, language, timestamp }
         self.agent_sessions = {}  # player_name → [{ role, content }, ...]
+        self.agent_tasks = {}  # player_name → asyncio.Task running _run_agent_prompt
         self.race_start_time = None
         self._timeout_task = None
         self._countdown_task = None
@@ -186,9 +187,13 @@ class Room:
         return "\n\n".join(parts)
 
     async def handle_agent_prompt(self, ws, agent_type, config, instruction, language, current_code):
-        """Run one agent turn for a player and return code to them only.
+        """Dispatch one agent turn for a player as a background task.
 
-        Never resolves the race — that still requires an explicit submit.
+        Returns immediately — the caller (the socket read loop) must never
+        block on an agent call, or the player can't Submit while their agent
+        is still thinking and their submission timestamp gets stamped late.
+        Never resolves the race on its own; that still requires an explicit
+        submit.
         """
         if self.state != RoomState.RACING:
             await self.send_to(
@@ -202,16 +207,32 @@ class Room:
             return
         name = player["name"]
 
+        existing = self.agent_tasks.get(name)
+        if existing and not existing.done():
+            await self.send_to(
+                player,
+                {"type": "agentStatus", "status": "error", "message": "Agent is still working on your last instruction."},
+            )
+            return
+
+        self.agent_tasks[name] = asyncio.create_task(
+            self._run_agent_prompt(player, agent_type, config, instruction, language, current_code)
+        )
+
+    async def _run_agent_prompt(self, player, agent_type, config, instruction, language, current_code):
+        """Background worker for one agent turn — the actual agent call."""
+        name = player["name"]
         history = self.agent_sessions.setdefault(name, [])
         context = self._build_agent_context(language, current_code, history, instruction)
 
-        opponent = self.get_opponent(ws)
+        opponent = self.get_opponent(player["ws"])
         if opponent:
             await self.send_to(opponent, {"type": "opponentStatus", "status": "agent-thinking"})
 
         try:
             agent = build_agent(agent_type, {**config, "language": language})
-            result = await asyncio.wait_for(agent.run(context), timeout=self.AGENT_TIMEOUT_SECONDS)
+            timeout = getattr(agent, "timeout_seconds", self.AGENT_TIMEOUT_SECONDS)
+            result = await asyncio.wait_for(agent.run(context), timeout=timeout)
         except asyncio.TimeoutError:
             await self.send_to(player, {"type": "agentStatus", "status": "error", "message": "Agent timed out."})
         except Exception as e:
@@ -228,6 +249,24 @@ class Room:
         if opponent:
             status = "using-agent" if self.agent_sessions.get(name) else "writing"
             await self.send_to(opponent, {"type": "opponentStatus", "status": status})
+
+    async def _cancel_agent_task(self, name):
+        """Cancel one player's in-flight agent task, if any, and await its
+        teardown so the adapter's process-kill `finally` actually runs
+        before we move on (room exit, disconnect, etc.)."""
+        task = self.agent_tasks.get(name)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+    async def _cancel_all_agent_tasks(self):
+        for name in list(self.agent_tasks.keys()):
+            await self._cancel_agent_task(name)
 
     # ── Resolution ─────────────────────────────────────────────
 
@@ -249,6 +288,10 @@ class Room:
         # Cancel the timeout if still running
         if self._timeout_task and not self._timeout_task.done():
             self._timeout_task.cancel()
+
+        # A race that ends mid-agent-call must not leave an orphaned `claude`
+        # (or other adapter) process running against the host's quota.
+        await self._cancel_all_agent_tasks()
 
         # Notify players that judging is in progress
         await self.broadcast({"type": "judging"})
@@ -409,9 +452,14 @@ class Room:
                 opponent, {"type": "opponentStatus", "status": "disconnected"}
             )
 
+        # The disconnecting player is gone regardless of whether this ends
+        # the race for the opponent too — don't leave their agent running.
+        player = self.get_player(ws)
+        if player:
+            await self._cancel_agent_task(player["name"])
+
         # If the race is live and the disconnecting player hasn't submitted,
         # resolve immediately so the remaining player wins.
         if self.state == RoomState.RACING:
-            player = self.get_player(ws)
             if player and player["name"] not in self.submissions:
                 await self.resolve()
