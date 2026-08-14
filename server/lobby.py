@@ -14,12 +14,25 @@ from server.room import Room, RoomState
 class Lobby:
     """Manages the waiting queue and active rooms."""
 
-    def __init__(self, problem_bank, judge=None):
+    def __init__(self, problem_bank, judge=None, forced_problem_id=None):
         self.queue = []           # list of { "ws": ..., "name": ... }
         self.rooms = {}           # room_id → Room
         self.player_rooms = {}    # ws → room_id
         self.problem_bank = problem_bank
         self.judge = judge
+        # Testing aid: pin every room to one problem instead of picking at
+        # random, so a specific problem can be exercised repeatedly.
+        self.forced_problem_id = forced_problem_id
+
+    def _pick_problem(self):
+        """Choose the problem for a new room."""
+        if self.forced_problem_id:
+            problem = self.problem_bank.get_by_id(self.forced_problem_id)
+            if problem:
+                return problem
+            print(f"[Lobby] ⚠ FORCE_PROBLEM_ID='{self.forced_problem_id}' "
+                  f"not found in the problem bank — falling back to random.")
+        return self.problem_bank.get_random()
 
     async def add_player(self, ws, name):
         """Add a player to the matchmaking queue.
@@ -44,7 +57,7 @@ class Lobby:
     async def _create_room(self, player1, player2):
         """Create a room, notify both players, and start the countdown."""
         room_id = uuid.uuid4().hex[:8]
-        problem = self.problem_bank.get_random()
+        problem = self._pick_problem()
         room = Room(room_id, player1, player2, problem, judge=self.judge)
 
         self.rooms[room_id] = room

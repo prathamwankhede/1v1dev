@@ -1,0 +1,47 @@
+{
+    "id": "kv-store-transactions",
+    "title": "In-Memory Key-Value Store with Transactions",
+    "kind": "implementation",
+    "timeLimitSeconds": 480,
+    "description": "Implement an in-memory key-value store that supports nested transactions.\n\nYour program reads commands from standard input, one per line, and prints output only for the commands that produce it. Keys and values are single words containing no spaces. Command names are uppercase.\n\nData commands:\n  SET <key> <value>   Store value under key. Prints nothing.\n  GET <key>           Print the current value for key, or NULL if it is not set.\n  DELETE <key>        Remove key. Prints nothing.\n  COUNT <value>       Print how many keys currently hold exactly this value.\n\nTransaction commands:\n  BEGIN               Open a new transaction. Transactions may be nested.\n  ROLLBACK            Undo every change made since the most recent BEGIN and\n                      close that transaction. If no transaction is open,\n                      print NO TRANSACTION.\n  COMMIT              Permanently apply the changes from ALL open transactions\n                      and close them. If no transaction is open, print\n                      NO TRANSACTION.\n  END                 Stop reading input and exit.\n\nRules:\n  - Changes made inside an open transaction are visible to GET and COUNT\n    immediately, but only become permanent when COMMIT runs.\n  - ROLLBACK undoes only the innermost open transaction. Any enclosing\n    transaction stays open, and the changes it made before the inner BEGIN\n    remain in effect.\n  - COMMIT closes every open transaction at once, not just the innermost one.\n  - COUNT must reflect the current state, including uncommitted changes, and\n    must never count a key that has been deleted.\n  - A key that was never set, or that has been deleted, reads as NULL.\n\nInput Format:\n  A sequence of commands, one per line, terminated by END.\n\nOutput Format:\n  One line for each GET, each COUNT, and each NO TRANSACTION error, in the\n  order the commands appear.\n\nExample:\n  Input:\n    SET a hello\n    GET a\n    BEGIN\n    SET a world\n    GET a\n    ROLLBACK\n    GET a\n    ROLLBACK\n    END\n  Output:\n    hello\n    world\n    hello\n    NO TRANSACTION",
+    "starterCode": {
+        "python": "import sys\n\n# Each open transaction needs a way to undo the changes made inside it.\nstore = {}\n\nfor line in sys.stdin:\n    parts = line.split()\n    if not parts:\n        continue\n    cmd = parts[0]\n\n    if cmd == \"END\":\n        break\n    elif cmd == \"SET\":\n        key, value = parts[1], parts[2]\n        # Your code here\n    elif cmd == \"GET\":\n        key = parts[1]\n        # Your code here\n    elif cmd == \"DELETE\":\n        key = parts[1]\n        # Your code here\n    elif cmd == \"COUNT\":\n        value = parts[1]\n        # Your code here\n    elif cmd == \"BEGIN\":\n        # Your code here\n        pass\n    elif cmd == \"ROLLBACK\":\n        # Your code here\n        pass\n    elif cmd == \"COMMIT\":\n        # Your code here\n        pass\n",
+        "javascript": "const lines = require('fs').readFileSync(0, 'utf8').split('\\n');\n\n// Each open transaction needs a way to undo the changes made inside it.\nconst store = new Map();\nconst out = [];\n\nfor (const line of lines) {\n  const parts = line.trim().split(/\\s+/).filter(Boolean);\n  if (parts.length === 0) continue;\n  const cmd = parts[0];\n\n  if (cmd === 'END') {\n    break;\n  } else if (cmd === 'SET') {\n    const key = parts[1], value = parts[2];\n    // Your code here\n  } else if (cmd === 'GET') {\n    const key = parts[1];\n    // Your code here\n  } else if (cmd === 'DELETE') {\n    const key = parts[1];\n    // Your code here\n  } else if (cmd === 'COUNT') {\n    const value = parts[1];\n    // Your code here\n  } else if (cmd === 'BEGIN') {\n    // Your code here\n  } else if (cmd === 'ROLLBACK') {\n    // Your code here\n  } else if (cmd === 'COMMIT') {\n    // Your code here\n  }\n}\n\nconsole.log(out.join('\\n'));\n"
+    },
+    "testCases": [
+        {
+            "sample": true,
+            "input": "SET a hello\nGET a\nSET b world\nGET b\nDELETE a\nGET a\nEND",
+            "expectedOutput": "hello\nworld\nNULL"
+        },
+        {
+            "sample": true,
+            "input": "GET missing\nSET x 10\nSET y 10\nSET z 20\nCOUNT 10\nCOUNT 20\nCOUNT 30\nDELETE y\nCOUNT 10\nEND",
+            "expectedOutput": "NULL\n2\n1\n0\n1"
+        },
+        {
+            "input": "SET a 1\nSET b 1\nCOUNT 1\nSET b 2\nCOUNT 1\nCOUNT 2\nSET a 2\nCOUNT 1\nCOUNT 2\nEND",
+            "expectedOutput": "2\n1\n1\n0\n2"
+        },
+        {
+            "input": "SET a hello\nBEGIN\nSET a world\nGET a\nROLLBACK\nGET a\nEND",
+            "expectedOutput": "world\nhello"
+        },
+        {
+            "input": "SET a hello\nBEGIN\nSET a world\nCOMMIT\nGET a\nROLLBACK\nEND",
+            "expectedOutput": "world\nNO TRANSACTION"
+        },
+        {
+            "input": "SET a 1\nBEGIN\nSET a 2\nBEGIN\nSET a 3\nGET a\nROLLBACK\nGET a\nROLLBACK\nGET a\nEND",
+            "expectedOutput": "3\n2\n1"
+        },
+        {
+            "input": "ROLLBACK\nCOMMIT\nBEGIN\nSET a 1\nBEGIN\nSET b 2\nCOMMIT\nGET a\nGET b\nROLLBACK\nCOMMIT\nEND",
+            "expectedOutput": "NO TRANSACTION\nNO TRANSACTION\n1\n2\nNO TRANSACTION\nNO TRANSACTION"
+        },
+        {
+            "input": "SET a 10\nSET b 10\nCOUNT 10\nBEGIN\nSET c 10\nCOUNT 10\nDELETE a\nCOUNT 10\nBEGIN\nDELETE b\nCOUNT 10\nROLLBACK\nCOUNT 10\nROLLBACK\nCOUNT 10\nGET a\nEND",
+            "expectedOutput": "2\n3\n2\n1\n2\n2\n10"
+        }
+    ]
+}

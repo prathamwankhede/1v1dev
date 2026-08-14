@@ -501,7 +501,9 @@ h1 {
   font-size: 0.9rem;
   line-height: 1.7;
   color: var(--text-primary);
-  white-space: pre-line;
+  /* pre-wrap, not pre-line: problem specs indent their command tables and
+     examples, and pre-line collapses those runs of spaces. */
+  white-space: pre-wrap;
 }
 
 /* Test Cases */
@@ -546,6 +548,79 @@ h1 {
   color: var(--text-primary);
   white-space: pre;
   margin: 0;
+}
+
+/* Submission verdicts */
+.verdict-panel {
+  flex-shrink: 0;
+  max-height: 30%;
+  overflow-y: auto;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid var(--border-card);
+  font-size: 0.82rem;
+}
+
+.verdict-heading {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.6rem;
+}
+
+.verdict-panel.accepted .verdict-heading {
+  color: var(--neon-green);
+}
+
+.verdict-panel.rejected .verdict-heading {
+  color: var(--neon-red);
+}
+
+.verdict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.verdict-row {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  gap: 0.4rem 0.5rem;
+  align-items: baseline;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.verdict-mark {
+  font-weight: 700;
+}
+
+.verdict-row.pass .verdict-mark {
+  color: var(--neon-green);
+}
+
+.verdict-row.fail .verdict-mark {
+  color: var(--neon-red);
+}
+
+.verdict-diff {
+  grid-column: 2;
+  margin: 0.2rem 0 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+#race-timer.urgent {
+  color: var(--neon-red);
 }
 
 /* Editor */

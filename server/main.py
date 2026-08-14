@@ -29,6 +29,10 @@ PROBLEMS_DIR = Path(__file__).resolve().parent.parent / "problems"
 # Piston URL — override with PISTON_URL env var if needed
 PISTON_URL = os.environ.get("PISTON_URL", "http://localhost:2000")
 
+# Testing aid: pin every match to one problem id instead of picking at random.
+# Empty/unset keeps the normal random selection.
+FORCE_PROBLEM_ID = os.environ.get("FORCE_PROBLEM_ID", "").strip() or None
+
 
 async def broadcast_player_count(app):
     """Send current player count to every connected WebSocket."""
@@ -153,7 +157,14 @@ async def on_cleanup(app):
     await sandbox.close()
 
 
-def create_app():
+def create_app(forced_problem_id=None):
+    """Build the aiohttp application.
+
+    Args:
+        forced_problem_id: Pin every match to this problem id. Defaults to the
+            FORCE_PROBLEM_ID env var; tests pass it directly so they don't
+            depend on random problem selection.
+    """
     app = web.Application()
     app["clients"] = set()
 
@@ -168,7 +179,10 @@ def create_app():
     app["judge"] = judge
 
     # Create lobby with judge
-    app["lobby"] = Lobby(problem_bank, judge=judge)
+    forced = forced_problem_id if forced_problem_id is not None else FORCE_PROBLEM_ID
+    app["lobby"] = Lobby(problem_bank, judge=judge, forced_problem_id=forced)
+    if forced:
+        print(f"[Server] Pinned to problem '{forced}' — every match will use it.")
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

@@ -27,8 +27,12 @@ const testCasesContainer = document.getElementById('test-cases-container');
 const languageSelect = document.getElementById('language-select');
 const editorContainer = document.getElementById('editor-container');
 const submitBtn = document.getElementById('submit-btn');
+const verdictPanel = document.getElementById('verdict-panel');
 const countdownOverlay = document.getElementById('countdown-overlay');
 const countdownNumber = document.getElementById('countdown-number');
+
+// The submit button's resting markup, restored after a rejected attempt.
+const SUBMIT_LABEL = submitBtn ? submitBtn.innerHTML : 'Submit Solution';
 
 // Agent panel
 const agentTypeSelect = document.getElementById('agent-type-select');
@@ -60,6 +64,8 @@ let problem = null;
 let raceStartTime = null;
 let timerInterval = null;
 let hasSubmitted = false;
+let timeLimitMs = null;   // from the problem; null → count up as before
+let attemptCount = 0;
 
 // ── View Management ─────────────────────────────────
 function showView(name) {
@@ -74,7 +80,15 @@ function startTimer() {
   raceStartTime = Date.now();
   timerInterval = setInterval(() => {
     const elapsed = Date.now() - raceStartTime;
-    raceTimer.textContent = formatTime(elapsed);
+    if (timeLimitMs === null) {
+      raceTimer.textContent = formatTime(elapsed);
+      return;
+    }
+    // Count down when the problem declares a limit, so players can pace a
+    // long implementation problem.
+    const remaining = Math.max(0, timeLimitMs - elapsed);
+    raceTimer.textContent = formatTime(remaining);
+    raceTimer.classList.toggle('urgent', remaining <= 30000);
   }, 100);
 }
 
@@ -159,11 +173,54 @@ function setOpponentStatus(status) {
   const labels = {
     writing: 'Writing',
     submitted: 'Submitted',
+    attempted: 'Attempt Failed',
     disconnected: 'Disconnected',
     'agent-thinking': 'Agent Thinking',
     'using-agent': 'Using Agent',
   };
   opponentStatusText.textContent = labels[status] || status;
+}
+
+// ── Submission Verdicts ─────────────────────────────
+// A submission has to pass every test case to be accepted. Anything less
+// comes back rejected and the player can fix it and submit again.
+function setSubmitEnabled(enabled, label) {
+  submitBtn.disabled = !enabled;
+  if (label) submitBtn.innerHTML = label;
+}
+
+function renderVerdict(data) {
+  const { accepted, passCount, totalTests, results, attempt } = data;
+  verdictPanel.style.display = '';
+  verdictPanel.className = `verdict-panel ${accepted ? 'accepted' : 'rejected'}`;
+
+  const heading = accepted
+    ? `Accepted — ${passCount}/${totalTests} tests passed`
+    : `Rejected — ${passCount}/${totalTests} tests passed`;
+
+  const rows = (results || []).map((r) => {
+    const mark = r.passed ? '✓' : '✗';
+    const cls = r.passed ? 'pass' : 'fail';
+    const name = r.hidden ? `Hidden test ${r.index}` : `Test ${r.index}`;
+    let detail = '';
+    // Hidden cases never carry input/expected, so there is nothing to show
+    // beyond the pass mark and any crash message.
+    if (!r.passed && !r.hidden) {
+      detail =
+        `<pre class="verdict-diff">` +
+        `input:    ${escapeHtml(r.input || '')}\n` +
+        `expected: ${escapeHtml(r.expected || '')}\n` +
+        `actual:   ${escapeHtml(r.actual || '')}</pre>`;
+    } else if (!r.passed && r.error) {
+      detail = `<pre class="verdict-diff">${escapeHtml(r.error)}</pre>`;
+    }
+    return `<li class="verdict-row ${cls}"><span class="verdict-mark">${mark}</span>` +
+           `<span>${name}</span>${detail}</li>`;
+  }).join('');
+
+  verdictPanel.innerHTML =
+    `<div class="verdict-heading">Attempt ${attempt} — ${escapeHtml(heading)}</div>` +
+    `<ul class="verdict-list">${rows}</ul>`;
 }
 
 // ── Agent Prompting ─────────────────────────────────
@@ -230,7 +287,9 @@ function showResult(data) {
   if (outcome === 'win') {
     resultIcon.textContent = '🏆';
     resultTitle.textContent = 'VICTORY';
-    resultSubtitle.textContent = 'You were the fastest coder!';
+    resultSubtitle.textContent = mySub && mySub.passed
+      ? 'Your solution passed every test first.'
+      : 'You were ahead when time ran out.';
   } else if (outcome === 'lose') {
     resultIcon.textContent = '💀';
     resultTitle.textContent = 'DEFEAT';
@@ -238,20 +297,26 @@ function showResult(data) {
   } else {
     resultIcon.textContent = '🤝';
     resultTitle.textContent = 'TIE';
-    resultSubtitle.textContent = 'Neither player submitted in time.';
+    resultSubtitle.textContent = 'Neither player got a solution accepted.';
   }
 
-  // Player details
+  // Player details. `passed` is null on the no-judge fallback, where there
+  // is no test count to report.
+  const describe = (sub) => {
+    if (!sub || !sub.submitted) return 'Did not submit';
+    const time = formatTime(sub.timeMs);
+    if (sub.passed === null || sub.passed === undefined) return time;
+    const tests = `${sub.passCount}/${sub.totalTests} tests`;
+    const tries = sub.attempts > 1 ? `, ${sub.attempts} attempts` : '';
+    return `${time} — ${tests}${tries}`;
+  };
+
   resultYourName.textContent = playerName;
-  resultYourTime.textContent = mySub && mySub.submitted
-    ? formatTime(mySub.timeMs)
-    : 'Did not submit';
+  resultYourTime.textContent = describe(mySub);
 
   const oppName = oppSub ? oppSub.player : 'Opponent';
   resultOppName.textContent = oppName;
-  resultOppTime.textContent = oppSub && oppSub.submitted
-    ? formatTime(oppSub.timeMs)
-    : 'Did not submit';
+  resultOppTime.textContent = describe(oppSub);
 
   showView('result');
 }
@@ -333,8 +398,16 @@ function handleMessage(data) {
       // Initialize editor with starter code
       const lang = languageSelect.value;
       initEditor(problem.starterCode || {}, lang);
+      // Reset per-race verdict state
+      attemptCount = 0;
+      verdictPanel.style.display = 'none';
+      verdictPanel.innerHTML = '';
       // Enable submit button
-      submitBtn.disabled = false;
+      setSubmitEnabled(true, SUBMIT_LABEL);
+      // A problem may set its own clock; otherwise keep counting up
+      timeLimitMs = problem.timeLimitSeconds
+        ? problem.timeLimitSeconds * 1000
+        : null;
       // Start client-side timer
       startTimer();
       break;
@@ -343,19 +416,41 @@ function handleMessage(data) {
       setOpponentStatus(data.status);
       break;
 
+    case 'judging':
+      // Our attempt is being run against the test cases.
+      attemptCount = data.attempt || attemptCount + 1;
+      setSubmitEnabled(false, `Judging attempt ${attemptCount}...`);
+      break;
+
+    case 'submissionResult':
+      renderVerdict(data);
+      if (data.accepted) {
+        setSubmitEnabled(false, `
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 6L9 17l-5-5"/>
+          </svg>
+          Accepted
+        `);
+      } else {
+        // Rejected — the player fixes it and submits again.
+        setSubmitEnabled(true, SUBMIT_LABEL);
+      }
+      break;
+
     case 'submitted':
-      // Our own submission was confirmed
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = `
+      // Phase 1 fallback (no judge): one shot, no verdict to come.
+      setSubmitEnabled(false, `
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M20 6L9 17l-5-5"/>
         </svg>
         Submitted
-      `;
+      `);
       break;
 
     case 'timeout':
-      // Race timed out
+      stopTimer();
+      raceTimer.textContent = formatTime(0);
+      setSubmitEnabled(false, "Time's up");
       break;
 
     case 'result':
@@ -378,6 +473,15 @@ function handleMessage(data) {
 
     case 'error':
       console.warn('Server error:', data.message);
+      // Rejected submits (resubmit cooldown, judging still in flight) arrive
+      // here — silently dropping them would leave the button stuck.
+      if (currentView === 'race') {
+        verdictPanel.style.display = '';
+        verdictPanel.className = 'verdict-panel rejected';
+        verdictPanel.innerHTML =
+          `<div class="verdict-heading">${escapeHtml(data.message || 'Error')}</div>`;
+        setSubmitEnabled(true, SUBMIT_LABEL);
+      }
       break;
   }
 }
@@ -421,8 +525,11 @@ languageSelect.addEventListener('change', () => {
 });
 
 // Submit button
+// Resubmission is allowed: a rejected attempt re-enables the button. The
+// server is the authority on whether an attempt is accepted at all (it also
+// enforces the resubmit cooldown), so we only guard against double-clicks.
 submitBtn.addEventListener('click', () => {
-  if (hasSubmitted || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (submitBtn.disabled || !ws || ws.readyState !== WebSocket.OPEN) return;
   if (!editor) return;
 
   const code = editor.getValue();
@@ -430,7 +537,7 @@ submitBtn.addEventListener('click', () => {
 
   ws.send(JSON.stringify({ type: 'submit', code, language }));
   hasSubmitted = true;
-  submitBtn.disabled = true;
+  setSubmitEnabled(false, 'Submitting...');
 });
 
 // Play Again button
@@ -440,13 +547,12 @@ playAgainBtn.addEventListener('click', () => {
   problem = null;
   stopTimer();
   raceTimer.textContent = '00:00';
-  submitBtn.disabled = true;
-  submitBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
-    </svg>
-    Submit Solution
-  `;
+  raceTimer.classList.remove('urgent');
+  timeLimitMs = null;
+  attemptCount = 0;
+  verdictPanel.style.display = 'none';
+  verdictPanel.innerHTML = '';
+  setSubmitEnabled(false, SUBMIT_LABEL);
   findMatchBtn.textContent = 'Find Match';
   findMatchBtn.disabled = false;
   lobbyMessage.textContent = 'Ready for another round!';

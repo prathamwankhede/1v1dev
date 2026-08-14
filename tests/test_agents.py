@@ -134,7 +134,10 @@ class TestAgentPrompting(unittest.IsolatedAsyncioTestCase):
         self.patcher = patch("server.room.build_agent", lambda agent_type, config: FakeAgent(config))
         self.patcher.start()
 
-        self.app = create_app()
+        # Pin the problem: these tests are about agent plumbing, and a
+        # problem carrying its own timeLimitSeconds would override the
+        # RACE_TIMEOUT_SECONDS patching some of them rely on.
+        self.app = create_app(forced_problem_id="two-sum")
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, "localhost", 0)
@@ -225,12 +228,13 @@ class TestAgentPrompting(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.TimeoutError):
             await self.recv_type(ws1, "result", timeout=1)
 
-        # An explicit submit still resolves the race normally.
+        # An explicit submit still goes through to the judge. It is graded on
+        # its own merits — incorrect code is rejected rather than winning —
+        # so the assertion here is that a verdict comes back at all.
         await ws1.send_json({"type": "submit", "code": "print('hi')", "language": "python"})
-        await ws2.send_json({"type": "submit", "code": "print('bye')", "language": "python"})
 
-        result1 = await self.recv_type(ws1, "result")
-        self.assertIn("winner", result1)
+        verdict = await self.recv_type(ws1, "submissionResult")
+        self.assertFalse(verdict["accepted"])
 
         await ws1.close()
         await ws2.close()
@@ -360,7 +364,10 @@ class TestAgentTaskLifecycle(unittest.IsolatedAsyncioTestCase):
         self.patcher = patch("server.room.build_agent", _build_agent)
         self.patcher.start()
 
-        self.app = create_app()
+        # Pin the problem: test_agent_task_cancelled_on_race_timeout patches
+        # RACE_TIMEOUT_SECONDS, which a problem's own timeLimitSeconds wins
+        # over. two-sum sets no limit, so the patch takes effect.
+        self.app = create_app(forced_problem_id="two-sum")
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, "localhost", 0)
@@ -425,8 +432,10 @@ class TestAgentTaskLifecycle(unittest.IsolatedAsyncioTestCase):
 
         # If the agent call blocked the read loop, this would only arrive
         # after SlowFakeAgent.SLEEP_SECONDS — well past this short timeout.
-        submitted = await self.recv_type(ws1, "submitted", timeout=SlowFakeAgent.SLEEP_SECONDS - 0.5)
-        self.assertIsNotNone(submitted)
+        # `judging` is the submit acknowledgement: it is sent before the
+        # attempt is handed off to the judge.
+        ack = await self.recv_type(ws1, "judging", timeout=SlowFakeAgent.SLEEP_SECONDS - 0.5)
+        self.assertIsNotNone(ack)
 
         await ws1.close()
         await ws2.close()
