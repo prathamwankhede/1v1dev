@@ -42,6 +42,15 @@ const agentApiKeyInput = document.getElementById('agent-apikey-input');
 const agentInstructionInput = document.getElementById('agent-instruction-input');
 const agentAskBtn = document.getElementById('agent-ask-btn');
 const agentStatusEl = document.getElementById('agent-status');
+const agentTranscript = document.getElementById('agent-transcript');
+const agentTranscriptToggle = document.getElementById('agent-transcript-toggle');
+const agentTranscriptTitle = document.getElementById('agent-transcript-title');
+const agentTranscriptBody = document.getElementById('agent-transcript-body');
+
+// Must match Room.AGENT_HISTORY_LIMIT (server/room.py) — the transcript
+// keeps every turn from the race, but the model only ever sees the most
+// recent AGENT_HISTORY_LIMIT of them.
+const AGENT_HISTORY_LIMIT = 20;
 
 // Result
 const resultCard = document.querySelector('.result-card');
@@ -66,6 +75,14 @@ let timerInterval = null;
 let hasSubmitted = false;
 let timeLimitMs = null;   // from the problem; null → count up as before
 let attemptCount = 0;
+
+// Agent conversation transcript. Each entry: { role, text, code, hasCode,
+// counted }. 'counted' marks a successful player/agent pair — the same
+// ones that made it into Room.agent_sessions and therefore into what the
+// model sees; a failed turn stays visible here for the player's own
+// record but is not counted (the server never stored it either).
+let transcript = [];
+let pendingTranscriptIndex = null; // index of the in-flight 'pending' entry
 
 // ── View Management ─────────────────────────────────
 function showView(name) {
@@ -242,13 +259,95 @@ function setAgentStatus(message, isError) {
   agentStatusEl.classList.toggle('error', !!isError);
 }
 
+// ── Agent Transcript ─────────────────────────────────
+// Every turn from the race stays visible here — display and model context
+// diverge by design, since the model only ever sees the last
+// AGENT_HISTORY_LIMIT messages. Code never reaches the editor on its own;
+// the player applies a specific turn's code explicitly.
+
+function resetAgentTranscript() {
+  transcript = [];
+  pendingTranscriptIndex = null;
+  agentTranscript.style.display = 'none';
+  agentTranscript.classList.remove('collapsed');
+  agentTranscriptBody.innerHTML = '';
+}
+
+function renderTranscript() {
+  if (transcript.length === 0) {
+    agentTranscript.style.display = 'none';
+    return;
+  }
+  agentTranscript.style.display = '';
+
+  const countedTotal = transcript.filter((t) => t.counted).length;
+  agentTranscriptTitle.textContent =
+    `${countedTotal} ${countedTotal === 1 ? 'turn' : 'turns'} · last ${AGENT_HISTORY_LIMIT} sent to agent`;
+
+  agentTranscriptBody.innerHTML = transcript.map((t, i) => {
+    if (t.role === 'player') {
+      return `<div class="transcript-turn turn-player">
+        <div class="transcript-label">You</div>
+        <div class="transcript-text">${escapeHtml(t.text)}</div>
+      </div>`;
+    }
+    if (t.role === 'pending') {
+      return `<div class="transcript-turn turn-pending">
+        <div class="transcript-label">Agent</div>
+        <div class="transcript-text transcript-thinking">Thinking…</div>
+      </div>`;
+    }
+    if (t.role === 'error') {
+      return `<div class="transcript-turn turn-error">
+        <div class="transcript-label">Agent</div>
+        <div class="transcript-text">${escapeHtml(t.text)}</div>
+      </div>`;
+    }
+    // 'agent' — a completed reply. Apply loads *this* turn's code, so an
+    // earlier turn stays re-appliable even after later turns arrive.
+    const codePreview = t.hasCode
+      ? `<pre class="transcript-code">${escapeHtml(t.code)}</pre>
+         <button class="btn-apply" type="button" data-turn="${i}">Apply to editor</button>`
+      : '';
+    return `<div class="transcript-turn turn-agent">
+      <div class="transcript-label">Agent</div>
+      <div class="transcript-text">${escapeHtml(t.text)}</div>
+      ${codePreview}
+    </div>`;
+  }).join('');
+
+  agentTranscriptBody.scrollTop = agentTranscriptBody.scrollHeight;
+}
+
+agentTranscriptToggle.addEventListener('click', () => {
+  agentTranscript.classList.toggle('collapsed');
+});
+
+// Delegated: turns re-render on every message, so a listener on each
+// button would leak/duplicate.
+agentTranscriptBody.addEventListener('click', (e) => {
+  const btn = e.target.closest('.btn-apply');
+  if (!btn || !editor) return;
+  const turn = transcript[Number(btn.dataset.turn)];
+  if (turn && turn.role === 'agent' && turn.hasCode) {
+    editor.setValue(turn.code);
+  }
+});
+
 agentAskBtn.addEventListener('click', () => {
   const instruction = agentInstructionInput.value.trim();
   if (!instruction || !ws || ws.readyState !== WebSocket.OPEN) return;
   if (!editor) return;
 
   agentAskBtn.disabled = true;
-  setAgentStatus('Asking agent...', false);
+  setAgentStatus('', false);
+
+  // Show the player's own question immediately, while the agent thinks —
+  // don't wait for the round trip to render it.
+  transcript.push({ role: 'player', text: instruction });
+  pendingTranscriptIndex = transcript.length;
+  transcript.push({ role: 'pending' });
+  renderTranscript();
 
   ws.send(JSON.stringify({
     type: 'agentPrompt',
@@ -260,6 +359,17 @@ agentAskBtn.addEventListener('click', () => {
     instruction,
     code: editor.getValue(),
   }));
+
+  agentInstructionInput.value = '';
+});
+
+// Cmd/Ctrl+Enter sends, mirroring the Enter-to-submit precedent on the
+// player-name input.
+agentInstructionInput.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !agentAskBtn.disabled) {
+    e.preventDefault();
+    agentAskBtn.click();
+  }
 });
 
 // ── Result Rendering ────────────────────────────────
@@ -375,6 +485,7 @@ function handleMessage(data) {
       setAgentStatus('', false);
       agentInstructionInput.value = '';
       agentAskBtn.disabled = false;
+      resetAgentTranscript();
       // Show race view (countdown overlay will be visible on top)
       showView('race');
       countdownOverlay.classList.add('active');
@@ -398,10 +509,11 @@ function handleMessage(data) {
       // Initialize editor with starter code
       const lang = languageSelect.value;
       initEditor(problem.starterCode || {}, lang);
-      // Reset per-race verdict state
+      // Reset per-race verdict and agent state
       attemptCount = 0;
       verdictPanel.style.display = 'none';
       verdictPanel.innerHTML = '';
+      resetAgentTranscript();
       // Enable submit button
       setSubmitEnabled(true, SUBMIT_LABEL);
       // A problem may set its own clock; otherwise keep counting up
@@ -459,15 +571,42 @@ function handleMessage(data) {
 
     case 'agentResponse':
       agentAskBtn.disabled = false;
-      setAgentStatus('Agent responded — review before submitting.', false);
-      if (editor) editor.setValue(data.code || '');
-      agentInstructionInput.value = '';
+      // The player applies code explicitly from the transcript — a reply
+      // never overwrites the editor on its own, so a hand-edit in progress
+      // (or an earlier Apply) is never silently discarded.
+      if (pendingTranscriptIndex !== null) {
+        transcript[pendingTranscriptIndex] = {
+          role: 'agent',
+          text: data.log || '',
+          code: data.code || '',
+          hasCode: !!data.hasCode,
+          counted: true,
+        };
+        transcript[pendingTranscriptIndex - 1].counted = true;
+        pendingTranscriptIndex = null;
+      }
+      renderTranscript();
       break;
 
     case 'agentStatus':
       agentAskBtn.disabled = false;
       if (data.status === 'error') {
-        setAgentStatus(data.message || 'Agent error.', true);
+        if (pendingTranscriptIndex !== null) {
+          // Tied to a turn the player just asked — show it inline rather
+          // than as a status line that disappears on the next message.
+          transcript[pendingTranscriptIndex] = {
+            role: 'error',
+            text: data.message || 'Agent error.',
+          };
+          pendingTranscriptIndex = null;
+          renderTranscript();
+        } else {
+          // Not tied to any turn (e.g. sent outside a race) — nothing in
+          // the transcript to attach it to.
+          setAgentStatus(data.message || 'Agent error.', true);
+        }
+      } else {
+        setAgentStatus('', false);
       }
       break;
 
@@ -560,6 +699,7 @@ playAgainBtn.addEventListener('click', () => {
   setAgentStatus('', false);
   agentInstructionInput.value = '';
   agentAskBtn.disabled = false;
+  resetAgentTranscript();
 
   // Tell server we want to play again (removes from old room)
   if (ws && ws.readyState === WebSocket.OPEN) {

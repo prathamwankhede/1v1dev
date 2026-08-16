@@ -750,6 +750,131 @@ h1 {
   color: var(--neon-red);
 }
 
+/* Agent conversation transcript */
+.agent-transcript {
+  flex-shrink: 0;
+  max-height: 32%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-card);
+  background: var(--bg-panel);
+}
+
+.agent-transcript.collapsed .agent-transcript-body {
+  display: none;
+}
+
+.agent-transcript-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.25rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.transcript-chevron {
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.agent-transcript.collapsed .transcript-chevron {
+  transform: rotate(-90deg);
+}
+
+.agent-transcript-body {
+  overflow-y: auto;
+  padding: 0 1.25rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.transcript-turn {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.transcript-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 0.15rem;
+}
+
+.turn-player .transcript-label {
+  color: var(--text-secondary);
+}
+
+.turn-agent .transcript-label {
+  color: var(--neon-purple);
+}
+
+.turn-error .transcript-label,
+.turn-error .transcript-text {
+  color: var(--neon-red);
+}
+
+.transcript-text {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.turn-pending .transcript-text {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.transcript-thinking {
+  animation: blink 1.4s infinite;
+}
+
+.transcript-code {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
+.btn-apply {
+  margin-top: 0.4rem;
+  background: var(--bg-input);
+  border: 1px solid var(--neon-purple);
+  border-radius: var(--radius-sm);
+  color: var(--neon-purple);
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-apply:hover {
+  background: rgba(168, 85, 247, 0.15);
+}
+
 .opp-status.agent-thinking {
   background: rgba(168, 85, 247, 0.1);
   color: var(--neon-purple);

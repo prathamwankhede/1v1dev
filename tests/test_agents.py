@@ -20,7 +20,7 @@ from aiohttp import web
 
 from server.main import create_app
 from server.agents.interface import AgentBackend
-from server.agents.parsing import extract_code_block
+from server.agents.parsing import extract_code_block, find_code_block
 from server.agents.claude_code import ClaudeCodeAgent
 from server.agents import claude_code as claude_code_module
 from server.room import Room
@@ -58,6 +58,44 @@ class SlowFakeAgent(AgentBackend):
             SlowFakeAgent.cancelled.append(prompt)
             raise
         return {"code": "# slow response", "log": "slow log"}
+
+
+class ConversationFakeAgent(AgentBackend):
+    """Test double for the structured multi-turn path (supports_conversation
+    adapters — Anthropic, OpenAI-compatible)."""
+
+    supports_conversation = True
+    calls = []  # list of (system, messages)
+
+    def __init__(self, config):
+        self.config = config
+
+    async def run(self, prompt):
+        raise AssertionError("run() should not be called when supports_conversation is True")
+
+    async def run_conversation(self, system, messages):
+        ConversationFakeAgent.calls.append((system, messages))
+        n = len(ConversationFakeAgent.calls)
+        return {
+            "code": f"# conv response {n}",
+            "log": f"conversation log {n}",
+            "hasCode": True,
+        }
+
+
+class ProseOnlyFakeAgent(AgentBackend):
+    """Test double whose reply has no fenced code block, to exercise the
+    hasCode=False path."""
+
+    calls = []
+
+    def __init__(self, config):
+        self.config = config
+
+    async def run(self, prompt):
+        ProseOnlyFakeAgent.calls.append(prompt)
+        text = "I think a dict works well here, no code needed yet."
+        return {"code": text, "log": text, "hasCode": False}
 
 
 class FakeProc:
@@ -123,6 +161,35 @@ class TestExtractCodeBlock(unittest.TestCase):
     def test_falls_back_to_whole_response_if_no_fence(self):
         text = "  just print(1) inline  "
         self.assertEqual(extract_code_block(text, "python"), "just print(1) inline")
+
+
+class TestFindCodeBlock(unittest.TestCase):
+    """find_code_block is extract_code_block's superset: same extraction
+    rules, plus whether a real fence was found — a prose-only reply should
+    not be silently treated as if it were code."""
+
+    def test_fenced_block_reports_found_true(self):
+        text = "Here you go:\n```python\nprint(1)\n```\nDone."
+        code, found = find_code_block(text, "python")
+        self.assertEqual(code, "print(1)")
+        self.assertTrue(found)
+
+    def test_wrong_tag_fence_still_reports_found_true(self):
+        text = "```javascript\nconsole.log(1)\n```"
+        code, found = find_code_block(text, "python")
+        self.assertEqual(code, "console.log(1)")
+        self.assertTrue(found)
+
+    def test_prose_only_reports_found_false(self):
+        text = "  just print(1) inline, no fence at all  "
+        code, found = find_code_block(text, "python")
+        self.assertEqual(code, "just print(1) inline, no fence at all")
+        self.assertFalse(found)
+
+    def test_empty_text_reports_found_false(self):
+        code, found = find_code_block("", "python")
+        self.assertEqual(code, "")
+        self.assertFalse(found)
 
 
 class TestAgentPrompting(unittest.IsolatedAsyncioTestCase):
@@ -238,6 +305,185 @@ class TestAgentPrompting(unittest.IsolatedAsyncioTestCase):
 
         await ws1.close()
         await ws2.close()
+
+
+class TestAgentConversationHistory(unittest.IsolatedAsyncioTestCase):
+    """Covers the conversation-history redesign: structured messages for
+    supports_conversation adapters, raw-reply storage (not just extracted
+    code), and hasCode reporting on the wire."""
+
+    async def asyncSetUp(self):
+        FakeAgent.calls = []
+        ConversationFakeAgent.calls = []
+        ProseOnlyFakeAgent.calls = []
+
+        def _build_agent(agent_type, config):
+            if agent_type == "conversation":
+                return ConversationFakeAgent(config)
+            if agent_type == "prose-only":
+                return ProseOnlyFakeAgent(config)
+            return FakeAgent(config)
+
+        self.patcher = patch("server.room.build_agent", _build_agent)
+        self.patcher.start()
+
+        # Pin the problem for the same reason TestAgentPrompting does: a
+        # problem-specific timeLimitSeconds would override a RACE_TIMEOUT
+        # patch, and none of these tests are about problem content.
+        self.app = create_app(forced_problem_id="two-sum")
+        self.runner = web.AppRunner(self.app)
+        await self.runner.setup()
+        self.site = web.TCPSite(self.runner, "localhost", 0)
+        await self.site.start()
+        self.port = self.site._server.sockets[0].getsockname()[1]
+        self.ws_url = f"http://localhost:{self.port}/ws"
+        self.session = aiohttp.ClientSession()
+
+    async def asyncTearDown(self):
+        self.patcher.stop()
+        await self.session.close()
+        await self.runner.cleanup()
+
+    async def recv_type(self, ws, msg_type, timeout=15):
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            remaining = deadline - asyncio.get_event_loop().time()
+            msg = await asyncio.wait_for(ws.receive_json(), timeout=remaining)
+            if msg.get("type") == msg_type:
+                return msg
+        raise TimeoutError(f"Did not receive message of type '{msg_type}'")
+
+    async def _match_two_players(self):
+        ws1 = await self.session.ws_connect(self.ws_url)
+        ws2 = await self.session.ws_connect(self.ws_url)
+        await ws1.send_json({"type": "join", "playerName": "Alice"})
+        await ws2.send_json({"type": "join", "playerName": "Bob"})
+        race1 = await self.recv_type(ws1, "raceStart")
+        race2 = await self.recv_type(ws2, "raceStart")
+        return ws1, ws2, race1, race2
+
+    def _agent_prompt(self, agent_type, instruction, code=""):
+        return {
+            "type": "agentPrompt",
+            "agentType": agent_type,
+            "model": "fake-model",
+            "baseUrl": "",
+            "apiKey": "key",
+            "language": "python",
+            "instruction": instruction,
+            "code": code,
+        }
+
+    async def test_conversation_agent_receives_structured_messages(self):
+        """A supports_conversation adapter gets a system string plus a real
+        alternating messages array, with the live editor buffer riding on
+        the final (user) message."""
+        ws1, ws2, _, _ = await self._match_two_players()
+
+        await ws1.send_json(self._agent_prompt("conversation", "write a solution", code="x = 1"))
+        await self.recv_type(ws1, "agentResponse")
+
+        self.assertEqual(len(ConversationFakeAgent.calls), 1)
+        system, messages = ConversationFakeAgent.calls[0]
+        self.assertIn("Problem:", system)
+        # First turn: no history yet, so just one user message carrying the
+        # current code + instruction.
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["role"], "user")
+        self.assertIn("x = 1", messages[0]["content"])
+        self.assertIn("write a solution", messages[0]["content"])
+
+        await ws1.send_json(self._agent_prompt("conversation", "now handle negatives", code="x = 2"))
+        await self.recv_type(ws1, "agentResponse")
+
+        self.assertEqual(len(ConversationFakeAgent.calls), 2)
+        _, messages2 = ConversationFakeAgent.calls[1]
+        # The prior turn folds in as an alternating user/assistant pair,
+        # then the new user message carries the *latest* editor buffer —
+        # not what was current when the prior turn was sent.
+        roles = [m["role"] for m in messages2]
+        self.assertEqual(roles, ["user", "assistant", "user"])
+        self.assertIn("write a solution", messages2[0]["content"])
+        self.assertEqual(messages2[1], {"role": "assistant", "content": "conversation log 1"})
+        self.assertIn("x = 2", messages2[-1]["content"])
+        self.assertIn("now handle negatives", messages2[-1]["content"])
+        self.assertNotIn("x = 1", messages2[-1]["content"])
+
+        await ws1.close()
+        await ws2.close()
+
+    async def test_flat_agent_unaffected_by_conversation_path(self):
+        """An adapter without supports_conversation still gets the single
+        flat prompt string (this is the claude_code adapter's path)."""
+        ws1, ws2, _, _ = await self._match_two_players()
+
+        await ws1.send_json(self._agent_prompt("fake", "write a solution"))
+        response = await self.recv_type(ws1, "agentResponse")
+
+        self.assertEqual(len(FakeAgent.calls), 1)
+        self.assertIsInstance(FakeAgent.calls[0], str)
+        self.assertIn("write a solution", FakeAgent.calls[0])
+        self.assertEqual(response["code"], "# response 1")
+
+        await ws1.close()
+        await ws2.close()
+
+    async def test_history_replays_raw_log_not_just_extracted_code(self):
+        """The next turn's context should carry the agent's raw reply
+        forward, not just the extracted code — otherwise a follow-up like
+        'why did you use a dict there?' has nothing to refer back to."""
+        ws1, ws2, _, _ = await self._match_two_players()
+
+        await ws1.send_json(self._agent_prompt("fake", "write a solution"))
+        resp1 = await self.recv_type(ws1, "agentResponse")
+        self.assertEqual(resp1["log"], "fake log")
+
+        await ws1.send_json(self._agent_prompt("fake", "second instruction"))
+        await self.recv_type(ws1, "agentResponse")
+
+        # FakeAgent's flat path: the prior turn's raw log ("fake log"), not
+        # just the extracted code ("# response 1"), must appear in context.
+        self.assertIn("fake log", FakeAgent.calls[1])
+
+        await ws1.close()
+        await ws2.close()
+
+    async def test_agent_response_includes_full_log(self):
+        ws1, ws2, _, _ = await self._match_two_players()
+
+        await ws1.send_json(self._agent_prompt("fake", "write a solution"))
+        response = await self.recv_type(ws1, "agentResponse")
+
+        self.assertEqual(response["log"], "fake log")
+        self.assertIn("hasCode", response)
+
+        await ws1.close()
+        await ws2.close()
+
+    async def test_prose_only_reply_reports_has_code_false(self):
+        ws1, ws2, _, _ = await self._match_two_players()
+
+        await ws1.send_json(self._agent_prompt("prose-only", "explain your approach"))
+        response = await self.recv_type(ws1, "agentResponse")
+
+        self.assertFalse(response["hasCode"])
+        self.assertTrue(response["log"])
+        self.assertEqual(response["code"], response["log"])
+
+        await ws1.close()
+        await ws2.close()
+
+    async def test_agent_prompt_without_room_returns_error(self):
+        """A late/stale agentPrompt with no active room must not just be
+        dropped — the client would be left with a permanently disabled
+        button and nothing to recover from."""
+        ws1 = await self.session.ws_connect(self.ws_url)
+
+        await ws1.send_json(self._agent_prompt("fake", "write a solution"))
+        status = await self.recv_type(ws1, "agentStatus")
+        self.assertEqual(status["status"], "error")
+
+        await ws1.close()
 
 
 class TestClaudeCodeAgent(unittest.IsolatedAsyncioTestCase):

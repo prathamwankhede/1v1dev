@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import aiohttp
 
 from server.agents.interface import AgentBackend
-from server.agents.parsing import extract_code_block
+from server.agents.parsing import find_code_block
 
 # Public providers explicitly allowed, plus localhost/private-IP for
 # self-hosted backends (Ollama, vLLM, OpenCode gateway, ...) run alongside
@@ -46,6 +46,8 @@ class OpenAICompatibleAgent(AgentBackend):
     the player, except for no-auth local endpoints where it may be omitted.
     """
 
+    supports_conversation = True
+
     def __init__(self, config):
         base_url = (config.get("base_url") or "").rstrip("/")
         if not base_url:
@@ -67,6 +69,15 @@ class OpenAICompatibleAgent(AgentBackend):
         self.language = config.get("language", "python")
 
     async def run(self, prompt: str) -> dict:
+        return await self._call([{"role": "user", "content": prompt}])
+
+    async def run_conversation(self, system: str, messages: list) -> dict:
+        full_messages = messages
+        if system:
+            full_messages = [{"role": "system", "content": system}] + messages
+        return await self._call(full_messages)
+
+    async def _call(self, messages) -> dict:
         headers = {"content-type": "application/json"}
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
@@ -74,7 +85,7 @@ class OpenAICompatibleAgent(AgentBackend):
         payload = {
             "model": self.model,
             "max_tokens": MAX_TOKENS,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
         }
 
         async with aiohttp.ClientSession() as session:
@@ -91,8 +102,6 @@ class OpenAICompatibleAgent(AgentBackend):
 
         choices = data.get("choices", [])
         text = choices[0]["message"]["content"] if choices else ""
+        code, has_code = find_code_block(text, self.language)
 
-        return {
-            "code": extract_code_block(text, self.language),
-            "log": text,
-        }
+        return {"code": code, "log": text, "hasCode": has_code}

@@ -7,7 +7,7 @@ OpenAI-compatible adapter used for everything else.
 import aiohttp
 
 from server.agents.interface import AgentBackend
-from server.agents.parsing import extract_code_block
+from server.agents.parsing import find_code_block
 
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
@@ -21,6 +21,8 @@ class AnthropicAgent(AgentBackend):
     No server-side API key fallback: config["api_key"] is required.
     """
 
+    supports_conversation = True
+
     def __init__(self, config):
         api_key = config.get("api_key")
         if not api_key:
@@ -30,6 +32,12 @@ class AnthropicAgent(AgentBackend):
         self.language = config.get("language", "python")
 
     async def run(self, prompt: str) -> dict:
+        return await self._call(None, [{"role": "user", "content": prompt}])
+
+    async def run_conversation(self, system: str, messages: list) -> dict:
+        return await self._call(system, messages)
+
+    async def _call(self, system, messages) -> dict:
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": API_VERSION,
@@ -38,8 +46,10 @@ class AnthropicAgent(AgentBackend):
         payload = {
             "model": self.model,
             "max_tokens": MAX_TOKENS,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
         }
+        if system:
+            payload["system"] = system
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -55,8 +65,6 @@ class AnthropicAgent(AgentBackend):
 
         blocks = data.get("content", [])
         text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+        code, has_code = find_code_block(text, self.language)
 
-        return {
-            "code": extract_code_block(text, self.language),
-            "log": text,
-        }
+        return {"code": code, "log": text, "hasCode": has_code}

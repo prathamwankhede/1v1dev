@@ -147,6 +147,19 @@
             <div id="agent-status" class="agent-status"></div>
           </div>
 
+          <!-- Agent conversation transcript. The player's questions and the
+               agent's full replies (prose + code) stay visible for the
+               whole race; code only reaches the editor via Apply. -->
+          <div id="agent-transcript" class="agent-transcript" style="display:none;">
+            <button id="agent-transcript-toggle" class="agent-transcript-header" type="button">
+              <svg class="transcript-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+              <span id="agent-transcript-title">Conversation</span>
+            </button>
+            <div id="agent-transcript-body" class="agent-transcript-body"></div>
+          </div>
+
           <!-- Verdict for the player's latest attempt. A rejected attempt
                can be fixed and resubmitted. -->
           <div id="verdict-panel" class="verdict-panel" style="display:none;"></div>

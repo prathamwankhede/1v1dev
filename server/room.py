@@ -25,6 +25,8 @@ class Room:
     RACE_TIMEOUT_SECONDS = 120  # default when a problem sets no timeLimitSeconds
     AGENT_TIMEOUT_SECONDS = 60
     AGENT_HISTORY_LIMIT = 20  # messages (10 player/agent turn pairs), FIFO
+    AGENT_TURN_CHAR_LIMIT = 8000  # cap a stored turn's raw text so 20 turns
+                                  # of history can't grow the prompt unbounded
     RESUBMIT_COOLDOWN_SECONDS = 3  # floor between one player's attempts
     JUDGE_DRAIN_SECONDS = 15  # grace for judging an attempt made before time ran out
 
@@ -46,7 +48,10 @@ class Room:
         # player_name → [{ code, language, timestamp, verdict }, ...] — one
         # entry per attempt, since a rejected submission can be retried.
         self.submissions = {}
-        self.agent_sessions = {}  # player_name → [{ role, content }, ...]
+        # player_name → [{ role, content }, ...] — agent turns also carry
+        # "code" and "hasCode", the extracted solution alongside the raw
+        # reply text stored in "content".
+        self.agent_sessions = {}
         self.agent_tasks = {}  # player_name → asyncio.Task running _run_agent_prompt
         self.judge_tasks = {}  # player_name → asyncio.Task running _run_judging
         self.last_submit_at = {}  # player_name → monotonic time of last attempt
@@ -446,20 +451,35 @@ class Room:
     # own. A prompt only ever returns code to the requesting player; the
     # player still has to click Submit themselves for the race to resolve.
 
-    def _build_agent_context(self, language, current_code, history, instruction):
-        """Assemble the full prompt sent to the agent for one turn."""
-        parts = [
+    def _agent_system_prompt(self, language):
+        """The instruction + problem text shared by both prompt shapes."""
+        return (
             "You are pair-programming with a player racing to solve this "
             f"problem. Respond with the complete updated solution in a "
-            f"single {language} code block.",
-            f"Problem: {self.problem['title']}\n{self.problem['description']}",
-        ]
+            f"single {language} code block.\n\n"
+            f"Problem: {self.problem['title']}\n{self.problem['description']}"
+        )
 
+    def _agent_code_context(self, language, current_code):
+        """Fenced current-editor (or starter) code, or '' if there is none."""
         starter = self.problem.get("starterCode", {}).get(language, "")
         if current_code:
-            parts.append(f"Player's current code:\n```{language}\n{current_code}\n```")
-        elif starter:
-            parts.append(f"Starter code:\n```{language}\n{starter}\n```")
+            return f"Player's current code:\n```{language}\n{current_code}\n```"
+        if starter:
+            return f"Starter code:\n```{language}\n{starter}\n```"
+        return ""
+
+    def _build_agent_context(self, language, current_code, history, instruction):
+        """Assemble the full flat prompt sent to the agent for one turn.
+
+        Used for adapters that own their own system-prompt handling (the
+        local CLI adapter) rather than a real messages array.
+        """
+        parts = [self._agent_system_prompt(language)]
+
+        code_context = self._agent_code_context(language, current_code)
+        if code_context:
+            parts.append(code_context)
 
         for turn in history:
             speaker = "Player" if turn["role"] == "user" else "Agent"
@@ -467,6 +487,34 @@ class Room:
 
         parts.append(f"Player: {instruction}")
         return "\n\n".join(parts)
+
+    def _build_agent_messages(self, language, current_code, history, instruction):
+        """Assemble a structured system + messages payload for adapters that
+        support a real multi-turn conversation (the two HTTP adapters).
+
+        Returns (system, messages). History turns are stored in pairs (a
+        successful turn always appends both a "user" and an "agent" entry
+        together — see _run_agent_prompt), so messages already alternates
+        correctly and ends on an "assistant" turn before this appends the
+        final user message.
+        """
+        system = self._agent_system_prompt(language)
+
+        messages = [
+            {"role": "user" if turn["role"] == "user" else "assistant", "content": turn["content"]}
+            for turn in history
+        ]
+
+        # Current code rides on the final message, not the system block,
+        # since the player may have hand-edited since the previous turn.
+        final_parts = []
+        code_context = self._agent_code_context(language, current_code)
+        if code_context:
+            final_parts.append(code_context)
+        final_parts.append(instruction)
+        messages.append({"role": "user", "content": "\n\n".join(final_parts)})
+
+        return system, messages
 
     async def handle_agent_prompt(self, ws, agent_type, config, instruction, language, current_code):
         """Dispatch one agent turn for a player as a background task.
@@ -505,7 +553,6 @@ class Room:
         """Background worker for one agent turn — the actual agent call."""
         name = player["name"]
         history = self.agent_sessions.setdefault(name, [])
-        context = self._build_agent_context(language, current_code, history, instruction)
 
         opponent = self.get_opponent(player["ws"])
         if opponent:
@@ -514,18 +561,45 @@ class Room:
         try:
             agent = build_agent(agent_type, {**config, "language": language})
             timeout = getattr(agent, "timeout_seconds", self.AGENT_TIMEOUT_SECONDS)
-            result = await asyncio.wait_for(agent.run(context), timeout=timeout)
+
+            if getattr(agent, "supports_conversation", False):
+                system, messages = self._build_agent_messages(
+                    language, current_code, history, instruction
+                )
+                result = await asyncio.wait_for(
+                    agent.run_conversation(system, messages), timeout=timeout
+                )
+            else:
+                context = self._build_agent_context(language, current_code, history, instruction)
+                result = await asyncio.wait_for(agent.run(context), timeout=timeout)
         except asyncio.TimeoutError:
             await self.send_to(player, {"type": "agentStatus", "status": "error", "message": "Agent timed out."})
         except Exception as e:
             await self.send_to(player, {"type": "agentStatus", "status": "error", "message": str(e)})
         else:
+            log = result.get("log", "")
+            has_code = result.get("hasCode", True)
+            # Store the full raw reply, not just the extracted code — that's
+            # what lets a follow-up like "why did you use a dict there?"
+            # refer back to what the agent actually said, and it's what a
+            # flat-prompt adapter (claude_code) replays with its original
+            # fences intact rather than as bare unlabeled code.
             history.append({"role": "user", "content": instruction})
-            history.append({"role": "agent", "content": result["code"]})
+            history.append({
+                "role": "agent",
+                "content": log[: self.AGENT_TURN_CHAR_LIMIT],
+                "code": result["code"],
+                "hasCode": has_code,
+            })
             del history[: -self.AGENT_HISTORY_LIMIT]
             await self.send_to(
                 player,
-                {"type": "agentResponse", "code": result["code"], "log": result.get("log", "")},
+                {
+                    "type": "agentResponse",
+                    "code": result["code"],
+                    "log": log,
+                    "hasCode": has_code,
+                },
             )
 
         if opponent:

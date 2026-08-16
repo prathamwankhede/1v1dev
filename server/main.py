@@ -95,6 +95,15 @@ async def websocket_handler(request):
                                 data.get("language", "python"),
                                 data.get("code", ""),
                             )
+                        else:
+                            # Without this, a stale/late agentPrompt (room
+                            # already gone) leaves the client's Ask button
+                            # disabled forever with no error to recover from.
+                            await ws.send_str(json.dumps({
+                                "type": "agentStatus",
+                                "status": "error",
+                                "message": "You are not in an active race.",
+                            }))
 
                     elif msg_type == "playAgain":
                         # Remove from current room and allow re-queue

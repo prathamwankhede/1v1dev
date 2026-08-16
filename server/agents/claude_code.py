@@ -17,7 +17,7 @@ import shutil
 import tempfile
 
 from server.agents.interface import AgentBackend
-from server.agents.parsing import extract_code_block
+from server.agents.parsing import find_code_block
 
 CLI_BINARY = os.environ.get("CLAUDE_CLI_PATH", "claude")
 
@@ -163,4 +163,5 @@ class ClaudeCodeAgent(AgentBackend):
             raise RuntimeError(f"claude CLI error: {str(data.get('result', ''))[:300]}")
 
         text = data.get("result", "")
-        return {"code": extract_code_block(text, self.language), "log": text}
+        code, has_code = find_code_block(text, self.language)
+        return {"code": code, "log": text, "hasCode": has_code}
