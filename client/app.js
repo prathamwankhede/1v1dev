@@ -33,6 +33,12 @@ const countdownNumber = document.getElementById('countdown-number');
 
 // The submit button's resting markup, restored after a rejected attempt.
 const SUBMIT_LABEL = submitBtn ? submitBtn.innerHTML : 'Submit Solution';
+const ACCEPTED_LABEL = `
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M20 6L9 17l-5-5"/>
+  </svg>
+  Accepted
+`;
 
 // Agent panel
 const agentTypeSelect = document.getElementById('agent-type-select');
@@ -76,6 +82,88 @@ let hasSubmitted = false;
 let timeLimitMs = null;   // from the problem; null → count up as before
 let attemptCount = 0;
 
+// Session identity + working-tree sync (Phase 4). The token is minted by
+// the server on 'join' and is what survives a dropped connection or a
+// refresh — see phase4_session_reconnect_plan.md.
+let sessionToken = null;
+let workingRev = 0;
+let lastSyncAt = 0;
+let dirtySince = null;
+let syncDebounceTimer = null;
+const SYNC_MIN_INTERVAL_MS = 2000;
+const SYNC_MAX_DIRTY_MS = 15000;
+const STORAGE_TOKEN_KEY = '1v1dev_token';
+const STORAGE_REV_KEY = '1v1dev_rev';
+const STORAGE_FILES_KEY = '1v1dev_files';
+
+function loadStoredSession() {
+  try {
+    const token = localStorage.getItem(STORAGE_TOKEN_KEY);
+    if (!token) return null;
+    const rev = parseInt(localStorage.getItem(STORAGE_REV_KEY) || '0', 10);
+    const filesRaw = localStorage.getItem(STORAGE_FILES_KEY);
+    const files = filesRaw ? JSON.parse(filesRaw) : {};
+    return { token, rev: Number.isFinite(rev) ? rev : 0, files };
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveSessionToken(token) {
+  try { localStorage.setItem(STORAGE_TOKEN_KEY, token); } catch (err) { /* ignore */ }
+}
+
+function clearStoredSession() {
+  try {
+    localStorage.removeItem(STORAGE_TOKEN_KEY);
+    localStorage.removeItem(STORAGE_REV_KEY);
+    localStorage.removeItem(STORAGE_FILES_KEY);
+  } catch (err) { /* ignore */ }
+}
+
+function saveWorkingTree(rev, files) {
+  try {
+    localStorage.setItem(STORAGE_REV_KEY, String(rev));
+    localStorage.setItem(STORAGE_FILES_KEY, JSON.stringify(files));
+  } catch (err) { /* ignore */ }
+}
+
+// Placeholder shape: multi-file isn't built yet, so the tree is always a
+// single entry keyed "solution". The map shape is real so a later multi-file
+// migration only has to change what goes in the map, not the sync protocol.
+function doSyncTree() {
+  if (!editor || !ws || ws.readyState !== WebSocket.OPEN) return;
+  workingRev += 1;
+  const files = { solution: editor.getValue() };
+  lastSyncAt = Date.now();
+  dirtySince = null;
+  saveWorkingTree(workingRev, files);
+  ws.send(JSON.stringify({ type: 'syncTree', rev: workingRev, files }));
+}
+
+function scheduleSync() {
+  const now = Date.now();
+  if (dirtySince === null) dirtySince = now;
+  if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+
+  if (now - dirtySince >= SYNC_MAX_DIRTY_MS) {
+    doSyncTree();
+    return;
+  }
+  const wait = Math.max(0, SYNC_MIN_INTERVAL_MS - (now - lastSyncAt));
+  syncDebounceTimer = setTimeout(doSyncTree, wait);
+}
+
+window.addEventListener('beforeunload', () => {
+  // A ws.send() here is best-effort and the browser may tear the socket
+  // down before it lands — localStorage is synchronous and reliable, so
+  // that's the copy resume() trusts on the next load.
+  if (!editor) return;
+  try {
+    saveWorkingTree(workingRev + (dirtySince !== null ? 1 : 0), { solution: editor.getValue() });
+  } catch (err) { /* ignore */ }
+});
+
 // Agent conversation transcript. Each entry: { role, text, code, hasCode,
 // counted }. 'counted' marks a successful player/agent pair — the same
 // ones that made it into Room.agent_sessions and therefore into what the
@@ -93,8 +181,8 @@ function showView(name) {
 }
 
 // ── Timer ───────────────────────────────────────────
-function startTimer() {
-  raceStartTime = Date.now();
+function startTimer(explicitStartTime) {
+  raceStartTime = explicitStartTime || Date.now();
   timerInterval = setInterval(() => {
     const elapsed = Date.now() - raceStartTime;
     if (timeLimitMs === null) {
@@ -157,6 +245,8 @@ function initEditor(starterCode, language) {
 
   // Refresh after a short delay to ensure proper rendering
   setTimeout(() => editor.refresh(), 50);
+
+  editor.on('change', () => scheduleSync());
 }
 
 // ── Problem Rendering ───────────────────────────────
@@ -246,12 +336,7 @@ function renderVerdict(data) {
 
 agentTypeSelect.addEventListener('change', () => {
   const isCustom = agentTypeSelect.value === 'openai-compatible';
-  const isLocalClaudeCode = agentTypeSelect.value === 'claude-code';
   agentBaseUrlInput.style.display = isCustom ? '' : 'none';
-  agentApiKeyInput.style.display = isLocalClaudeCode ? 'none' : '';
-  agentModelInput.placeholder = isLocalClaudeCode
-    ? 'Model (optional — e.g. sonnet, opus)'
-    : 'Model (e.g. claude-sonnet-5)';
 });
 
 function setAgentStatus(message, isError) {
@@ -431,6 +516,94 @@ function showResult(data) {
   showView('result');
 }
 
+// ── Resume ──────────────────────────────────────────
+// Response to a stored token sent as `{type: 'resume'}` on connect. A
+// 'result'-typed reply (room already FINISHED) is handled by the existing
+// 'result' case below — this only covers the still-live phases.
+function handleResumeState(data) {
+  if (data.phase === 'countdown') {
+    // The next countdown tick (or raceStart) will reach this socket now
+    // that it's reattached — just get the race view up.
+    showView('race');
+    countdownOverlay.classList.add('active');
+    return;
+  }
+  if (data.phase !== 'racing') {
+    return; // resolving — the result broadcast is moments away
+  }
+
+  opponentName = data.opponentName || '';
+  opponentNameEl.textContent = opponentName;
+  setOpponentStatus(data.opponentConnected ? 'writing' : 'disconnected');
+  setAgentStatus('', false);
+  agentInstructionInput.value = '';
+  agentAskBtn.disabled = false;
+
+  problem = data.problem;
+  renderProblem(problem);
+  const lang = languageSelect.value;
+  initEditor(problem.starterCode || {}, lang);
+
+  // Restore the player's own working buffer. localStorage may be ahead of
+  // what last reached the server (it's written on every debounced sync and
+  // again, synchronously, on beforeunload), so whichever rev is higher wins.
+  const stored = loadStoredSession();
+  const serverRev = data.rev || 0;
+  let rev = serverRev;
+  let files = data.tree || {};
+  if (stored && stored.rev > serverRev) {
+    rev = stored.rev;
+    files = stored.files || {};
+  }
+  workingRev = rev;
+  dirtySince = null;
+  if (typeof files.solution === 'string' && editor) {
+    editor.setValue(files.solution);
+  }
+
+  const attempts = data.attempts || [];
+  attemptCount = attempts.length;
+  const last = attempts[attempts.length - 1];
+  if (last && last.judged) {
+    renderVerdict({
+      accepted: last.accepted,
+      passCount: last.passCount,
+      totalTests: last.totalTests,
+      results: last.results,
+      attempt: last.attempt,
+    });
+    setSubmitEnabled(!last.accepted, last.accepted ? ACCEPTED_LABEL : SUBMIT_LABEL);
+  } else {
+    verdictPanel.style.display = 'none';
+    verdictPanel.innerHTML = '';
+    setSubmitEnabled(true, SUBMIT_LABEL);
+  }
+
+  resetAgentTranscript();
+  (data.agentTranscript || []).forEach((turn) => {
+    if (turn.role === 'user') {
+      transcript.push({ role: 'player', text: turn.content, counted: true });
+    } else {
+      transcript.push({
+        role: 'agent',
+        text: turn.content,
+        code: turn.code,
+        hasCode: !!turn.hasCode,
+        counted: true,
+      });
+    }
+  });
+  renderTranscript();
+
+  timeLimitMs = problem.timeLimitSeconds ? problem.timeLimitSeconds * 1000 : null;
+  const remainingMs = (data.remainingSeconds || 0) * 1000;
+  const explicitStart = timeLimitMs !== null ? Date.now() - (timeLimitMs - remainingMs) : null;
+  startTimer(explicitStart);
+
+  countdownOverlay.classList.remove('active');
+  showView('race');
+}
+
 // ── WebSocket Connection ────────────────────────────
 function connect() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -440,6 +613,17 @@ function connect() {
   ws.onopen = () => {
     statusPill.textContent = 'Online';
     statusPill.className = 'status-pill online';
+
+    // A stored token means there's a race to rejoin — try that before
+    // falling back to the normal "enter a name" lobby flow.
+    const stored = loadStoredSession();
+    if (stored && stored.token) {
+      sessionToken = stored.token;
+      workingRev = stored.rev;
+      ws.send(JSON.stringify({ type: 'resume', token: stored.token }));
+      return;
+    }
+
     lobbyMessage.textContent = 'Enter your handle and find a match!';
     lobbyMessage.classList.remove('pulse');
     findMatchBtn.disabled = !playerNameInput.value.trim();
@@ -475,6 +659,26 @@ function handleMessage(data) {
   switch (data.type) {
     case 'playerCount':
       playerCount.textContent = data.count;
+      break;
+
+    case 'session':
+      sessionToken = data.token;
+      saveSessionToken(data.token);
+      break;
+
+    case 'resumeState':
+      handleResumeState(data);
+      break;
+
+    case 'resumeFailed':
+      clearStoredSession();
+      sessionToken = null;
+      showView('lobby');
+      lobbyMessage.textContent = data.reason === 'expired'
+        ? 'Your previous race is no longer available.'
+        : 'Could not resume your session — find a new match.';
+      lobbyMessage.classList.remove('pulse');
+      findMatchBtn.disabled = !playerNameInput.value.trim();
       break;
 
     case 'matched':
@@ -514,6 +718,11 @@ function handleMessage(data) {
       verdictPanel.style.display = 'none';
       verdictPanel.innerHTML = '';
       resetAgentTranscript();
+      // A fresh race means a fresh working buffer — nothing to carry over
+      // from whatever the previous race last synced.
+      workingRev = 0;
+      dirtySince = null;
+      saveWorkingTree(0, {});
       // Enable submit button
       setSubmitEnabled(true, SUBMIT_LABEL);
       // A problem may set its own clock; otherwise keep counting up
@@ -537,12 +746,7 @@ function handleMessage(data) {
     case 'submissionResult':
       renderVerdict(data);
       if (data.accepted) {
-        setSubmitEnabled(false, `
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 6L9 17l-5-5"/>
-          </svg>
-          Accepted
-        `);
+        setSubmitEnabled(false, ACCEPTED_LABEL);
       } else {
         // Rejected — the player fixes it and submits again.
         setSubmitEnabled(true, SUBMIT_LABEL);
@@ -700,6 +904,10 @@ playAgainBtn.addEventListener('click', () => {
   agentInstructionInput.value = '';
   agentAskBtn.disabled = false;
   resetAgentTranscript();
+
+  // Leaving this race for good — nothing left to resume into.
+  clearStoredSession();
+  sessionToken = null;
 
   // Tell server we want to play again (removes from old room)
   if (ws && ws.readyState === WebSocket.OPEN) {

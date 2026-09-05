@@ -109,13 +109,25 @@ async def websocket_handler(request):
                         # Remove from current room and allow re-queue
                         lobby.remove_player(ws)
 
+                    elif msg_type == "resume":
+                        token = data.get("token")
+                        if isinstance(token, str) and token:
+                            await lobby.resume(ws, token)
+
+                    elif msg_type == "syncTree":
+                        room = lobby.get_room(ws)
+                        if room:
+                            await room.handle_sync_tree(
+                                ws, data.get("rev"), data.get("files")
+                            )
+
                 except json.JSONDecodeError:
                     pass
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 break
     finally:
         request.app["clients"].discard(ws)
-        lobby.remove_player(ws)
+        lobby.handle_socket_closed(ws)
         await broadcast_player_count(request.app)
 
     return ws

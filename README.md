@@ -10,7 +10,7 @@ Challenges come in two flavours: quick **algorithmic** puzzles, and longer **imp
 
 The core vision of `1v1dev` is to create a lightweight, responsive arena with minimal external dependencies. The architecture is planned in a sequence of iterative stages to isolate complexities (like sandbox execution and real-time state synchronization) and ensure robust security.
 
-Currently, the project is through **Phase 3: AI Agent Backend Integration**. Phase 4 (Chaos Mode) is next.
+Currently, the project is through **Phase 4: Session Identity & Reconnection**. Phase 5 (Chaos Mode) is next.
 
 ### Technical Stack
 - **Backend:** Python 3 + [aiohttp](https://docs.aiohttp.org/) (Asynchronous HTTP & WebSocket server)
@@ -34,6 +34,7 @@ Currently, the project is through **Phase 3: AI Agent Backend Integration**. Pha
 - [problems/] — One JSON file per problem (id, title, description, starter code, test cases).
 - [tests/test_smoke.py] — Integration tests for connectivity, the race lifecycle, and judging.
 - [tests/test_agents.py] — Agent adapter and copilot plumbing tests.
+- [tests/test_session.py] — Session tokens, disconnect grace, resume, and working-tree sync.
 - [requirements.txt] — Python dependency definition.
 - [implementation_plan.md] — Architectural details and phase breakdowns.
 
@@ -83,25 +84,11 @@ FORCE_PROBLEM_ID=kv-store-transactions python server/main.py
 
 Open multiple browser tabs at `http://localhost:3000` to see real-time player count synchronization via WebSockets!
 
-### Using your local Claude Code
-
-The "Local Claude Code" agent option shells out to a `claude` CLI already installed and logged in
-on the machine running the server — no API key needed, since it uses that CLI's existing local
-auth. It's off by default and intended for local dev / LAN play only (anyone who can reach the
-server spends the host's Claude quota). To enable it:
-
-```bash
-ENABLE_LOCAL_CLAUDE_CODE=1 python server/main.py
-```
-
-Requires `claude` on `PATH` (or set `CLAUDE_CLI_PATH` to its location) and an already-logged-in
-CLI session.
-
 ### Running Tests
 
-Execute the test suite to verify server routing, WebSocket connectivity, judging, and agent plumbing:
+Execute the test suite to verify server routing, WebSocket connectivity, judging, agent plumbing, and session/reconnect behavior:
 ```bash
-python -m unittest tests.test_smoke tests.test_agents
+python -m unittest tests.test_smoke tests.test_agents tests.test_session
 ```
 
 The judging tests execute real code in Piston, so start it first (`docker compose up -d`).
@@ -125,9 +112,13 @@ The project follows a 6-phase development roadmap outlined in [implementation_pl
   - Strict resource constraints (CPU, memory, wall time).
   - Pass/fail test case verification, judged on submit with retries; hidden test cases; per-problem time limits.
 - [x] **Phase 3: AI Agent Backend Integration**
-  - Bring-your-own-model copilot: Anthropic, any OpenAI-compatible endpoint, or a local `claude` CLI.
+  - Bring-your-own-model copilot: Anthropic, or any OpenAI-compatible endpoint.
   - The agent is a copilot the player prompts and iterates with — it never submits on its own.
-- [ ] **Phase 4: Chaos Mode (Server-Push)**
+- [x] **Phase 4: Session Identity & Reconnection**
+  - Durable session tokens replace the WebSocket connection as a player's identity, surviving a dropped connection or a page refresh.
+  - A disconnect gets a grace window before it's treated as a forfeit, instead of resolving the race instantly; the race clock is never paused by it.
+  - Reconnecting restores the problem, remaining time, attempt history, agent transcript, and editor buffer.
+- [ ] **Phase 5: Chaos Mode (Server-Push)**
   - Dynamic in-game disruptions (spec modifications, client-side code corruption, tool blackouts) delivered to both players simultaneously.
-- [ ] **Phase 5: MCP-Based Chaos (Model Context Protocol)**
+- [ ] **Phase 6: MCP-Based Chaos (Model Context Protocol)**
   - Intercepting agent tool calls via a thin proxy server to simulate chaos events directly within the LLM's workspace environment.

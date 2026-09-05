@@ -5,6 +5,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # Allow `from server.main import ...` without packaging
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -153,6 +154,12 @@ class TestRaceLifecycle(unittest.IsolatedAsyncioTestCase):
     """Full race lifecycle: match → countdown → race → submit → result."""
 
     async def asyncSetUp(self):
+        # A dropped connection now gets a grace window before it's treated
+        # as a forfeit (Phase 4) — patched down so these tests don't each
+        # spend DISCONNECT_GRACE_SECONDS (45s) waiting on it.
+        self.grace_patcher = patch.object(Room, "DISCONNECT_GRACE_SECONDS", 0.3)
+        self.grace_patcher.start()
+
         self.app = create_app()
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
@@ -165,6 +172,7 @@ class TestRaceLifecycle(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.session.close()
         await self.runner.cleanup()
+        self.grace_patcher.stop()
 
     async def recv(self, ws, timeout=5):
         return await asyncio.wait_for(ws.receive_json(), timeout=timeout)
@@ -228,7 +236,8 @@ class TestRaceLifecycle(unittest.IsolatedAsyncioTestCase):
         await ws2.close()
 
     async def test_single_submitter_wins(self):
-        """If only one player attempts, they win when the other disconnects."""
+        """If only one player attempts, they win once their opponent's
+        disconnect grace window elapses without a reconnect."""
         ws1, ws2, _, _ = await self._match_two_players()
 
         # Alice makes an attempt (it fails, but it is still an attempt)
@@ -238,8 +247,13 @@ class TestRaceLifecycle(unittest.IsolatedAsyncioTestCase):
         # Bob disconnects without submitting
         await ws2.close()
 
-        # Alice should receive the result (winner)
-        result = await self.recv_type(ws1, "result")
+        # Alice sees the disconnect immediately...
+        status = await self.recv_type(ws1, "opponentStatus")
+        self.assertEqual(status["status"], "disconnected")
+
+        # ...but the race only resolves once the grace window (patched down
+        # for this test) runs out without Bob reconnecting.
+        result = await self.recv_type(ws1, "result", timeout=5)
         self.assertEqual(result["winner"], "Alice")
 
         await ws1.close()
@@ -250,9 +264,10 @@ class TestRaceLifecycle(unittest.IsolatedAsyncioTestCase):
 
         # Both disconnect without submitting
         await ws1.close()
-        # Give server time to process
-        await asyncio.sleep(0.1)
         await ws2.close()
+        # Let the (patched-down) grace timers on both sides run to
+        # completion so no task is left dangling past the test.
+        await asyncio.sleep(0.5)
         # No assertions — just verify no crash
 
 

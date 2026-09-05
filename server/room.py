@@ -4,11 +4,21 @@ States: COUNTDOWN → RACING → RESOLVING → FINISHED
 
 Phase 2 judging: code is executed against test cases via sandbox.
 Winner is determined by correctness first, then timestamp as tiebreaker.
+
+Phase 4 identity: `self.players` entries are the same session dicts Lobby
+owns (`Lobby.sessions[token]`), not copies — so a reconnect that reassigns
+`session["ws"]` is visible here automatically. Every per-player structure
+below is keyed by `token`, not by display name, since nothing dedupes
+names and two players named "Anonymous" would otherwise share state.
+`name` still flows into outward-facing payloads for display.
 """
 
 import asyncio
 import json
 import time
+
+from langchain_core.messages import AIMessage, HumanMessage, trim_messages
+from langchain_core.messages.utils import count_tokens_approximately
 
 from server.agents.registry import build_agent
 
@@ -27,39 +37,55 @@ class Room:
     AGENT_HISTORY_LIMIT = 20  # messages (10 player/agent turn pairs), FIFO
     AGENT_TURN_CHAR_LIMIT = 8000  # cap a stored turn's raw text so 20 turns
                                   # of history can't grow the prompt unbounded
+    AGENT_HISTORY_TOKEN_BUDGET = 6000  # trim_messages budget for the history
+                                        # sent to structured-message adapters
+                                        # (anthropic, openai-compatible) —
+                                        # separate from the storage-side caps
+                                        # above, which still bound agent_sessions
+                                        # itself and any flat-prompt adapter
     RESUBMIT_COOLDOWN_SECONDS = 3  # floor between one player's attempts
     JUDGE_DRAIN_SECONDS = 15  # grace for judging an attempt made before time ran out
+    DISCONNECT_GRACE_SECONDS = 45  # window to reconnect before a dropped
+                                    # player's non-attempt becomes a forfeit;
+                                    # also reused as the room's post-result
+                                    # retention window (see Lobby._teardown_room)
+    MAX_TREE_BYTES = 256 * 1024  # cap on a syncTree payload
 
-    def __init__(self, room_id, player1, player2, problem, judge=None):
+    def __init__(self, room_id, player1, player2, problem, judge=None, on_finished=None):
         """Create a new room.
 
         Args:
             room_id: Short unique identifier.
-            player1: dict with keys "ws" (WebSocketResponse) and "name" (str).
-            player2: dict with keys "ws" (WebSocketResponse) and "name" (str).
+            player1: session dict with (at least) "ws", "name", "token".
+            player2: session dict with (at least) "ws", "name", "token".
             problem: Problem dict from the problem bank.
             judge: Judge instance for code evaluation (Phase 2+).
+            on_finished: Called (no args) once resolve() reaches FINISHED —
+                Lobby uses this to schedule room teardown.
         """
         self.room_id = room_id
         self.players = [player1, player2]
         self.problem = problem
         self.judge = judge
+        self.on_finished = on_finished
         self.state = RoomState.COUNTDOWN
-        # player_name → [{ code, language, timestamp, verdict }, ...] — one
-        # entry per attempt, since a rejected submission can be retried.
+        # token → [{ code, language, timestamp, verdict }, ...] — one entry
+        # per attempt, since a rejected submission can be retried.
         self.submissions = {}
-        # player_name → [{ role, content }, ...] — agent turns also carry
-        # "code" and "hasCode", the extracted solution alongside the raw
-        # reply text stored in "content".
+        # token → [{ role, content }, ...] — agent turns also carry "code"
+        # and "hasCode", the extracted solution alongside the raw reply text
+        # stored in "content".
         self.agent_sessions = {}
-        self.agent_tasks = {}  # player_name → asyncio.Task running _run_agent_prompt
-        self.judge_tasks = {}  # player_name → asyncio.Task running _run_judging
-        self.last_submit_at = {}  # player_name → monotonic time of last attempt
-        self.accepted = {}  # player_name → the attempt that passed every test
+        self.agent_tasks = {}  # token → asyncio.Task running _run_agent_prompt
+        self.judge_tasks = {}  # token → asyncio.Task running _run_judging
+        self.grace_tasks = {}  # token → asyncio.Task running _grace_timeout
+        self.last_submit_at = {}  # token → monotonic time of last attempt
+        self.accepted = {}  # token → the attempt that passed every test
         self.winner_name = None  # set as soon as an accepted attempt is settled
         self.race_start_time = None
         self._timeout_task = None
         self._countdown_task = None
+        self._last_result = None  # the broadcast 'result' payload, for resume
 
         # A problem may set its own clock; implementation-style problems need
         # far longer than the algorithmic puzzles this default was sized for.
@@ -82,15 +108,21 @@ class Room:
         """Send a JSON message to both players in this room."""
         data = json.dumps(msg)
         for p in self.players:
+            ws = p.get("ws")
+            if ws is None:
+                continue
             try:
-                await p["ws"].send_str(data)
+                await ws.send_str(data)
             except Exception:
                 pass
 
     async def send_to(self, player, msg):
         """Send a JSON message to a single player."""
+        ws = player.get("ws")
+        if ws is None:
+            return
         try:
-            await player["ws"].send_str(json.dumps(msg))
+            await ws.send_str(json.dumps(msg))
         except Exception:
             pass
 
@@ -105,6 +137,20 @@ class Room:
         """Return the player dict for a given WebSocket."""
         for p in self.players:
             if p["ws"] is ws:
+                return p
+        return None
+
+    def get_player_by_token(self, token):
+        """Return the player dict for a given session token."""
+        for p in self.players:
+            if p["token"] == token:
+                return p
+        return None
+
+    def get_opponent_by_token(self, token):
+        """Return the opponent player dict for a given session token."""
+        for p in self.players:
+            if p["token"] != token:
                 return p
         return None
 
@@ -155,22 +201,29 @@ class Room:
                 })
         return public
 
+    def _race_field_whitelist(self):
+        """The problem fields sent to clients — shared by raceStart and
+        resumeState so a new field only needs to be added here (per
+        CLAUDE.md: adding a problem field means touching problems.py
+        validation and this whitelist, or it silently vanishes)."""
+        return {
+            "id": self.problem["id"],
+            "title": self.problem["title"],
+            "description": self.problem["description"],
+            "starterCode": self.problem.get("starterCode", {}),
+            "testCases": self._sample_test_cases(),
+            "totalTests": len(self.problem.get("testCases", [])),
+            "timeLimitSeconds": self.time_limit,
+            "kind": self.problem.get("kind", "algorithmic"),
+        }
+
     async def start_race(self):
         """Broadcast the problem and begin the race timer."""
         self.state = RoomState.RACING
         self.race_start_time = time.time()
         await self.broadcast({
             "type": "raceStart",
-            "problem": {
-                "id": self.problem["id"],
-                "title": self.problem["title"],
-                "description": self.problem["description"],
-                "starterCode": self.problem.get("starterCode", {}),
-                "testCases": self._sample_test_cases(),
-                "totalTests": len(self.problem.get("testCases", [])),
-                "timeLimitSeconds": self.time_limit,
-                "kind": self.problem.get("kind", "algorithmic"),
-            },
+            "problem": self._race_field_whitelist(),
         })
         # Start the wall-clock timeout
         self._timeout_task = asyncio.create_task(self._race_timeout())
@@ -229,7 +282,7 @@ class Room:
         player = self.get_player(ws)
         if not player:
             return
-        name = player["name"]
+        token = player["token"]
 
         # With no judge there is no verdict to retry against, so keep the
         # Phase 1 one-shot, first-to-submit behaviour.
@@ -237,7 +290,7 @@ class Room:
             await self._handle_submit_timestamp_only(player, code, language)
             return
 
-        in_flight = self.judge_tasks.get(name)
+        in_flight = self.judge_tasks.get(token)
         if in_flight and not in_flight.done():
             await self.send_to(
                 player,
@@ -247,7 +300,7 @@ class Room:
 
         # Each attempt costs a full sandbox run per test case, for both
         # players — a tight retry loop would otherwise flood Piston.
-        waited = time.monotonic() - self.last_submit_at.get(name, float("-inf"))
+        waited = time.monotonic() - self.last_submit_at.get(token, float("-inf"))
         if waited < self.RESUBMIT_COOLDOWN_SECONDS:
             remaining = max(1, int(round(self.RESUBMIT_COOLDOWN_SECONDS - waited)))
             await self.send_to(player, {
@@ -255,7 +308,7 @@ class Room:
                 "message": f"Wait {remaining}s before resubmitting.",
             })
             return
-        self.last_submit_at[name] = time.monotonic()
+        self.last_submit_at[token] = time.monotonic()
 
         attempt = {
             "code": code,
@@ -263,11 +316,11 @@ class Room:
             "timestamp": time.time(),
             "verdict": None,
         }
-        self.submissions.setdefault(name, []).append(attempt)
+        self.submissions.setdefault(token, []).append(attempt)
 
         await self.send_to(player, {
             "type": "judging",
-            "attempt": len(self.submissions[name]),
+            "attempt": len(self.submissions[token]),
         })
         opponent = self.get_opponent(ws)
         if opponent:
@@ -275,21 +328,21 @@ class Room:
                 opponent, {"type": "opponentStatus", "status": "submitted"}
             )
 
-        self.judge_tasks[name] = asyncio.create_task(
+        self.judge_tasks[token] = asyncio.create_task(
             self._run_judging(player, attempt)
         )
 
     async def _handle_submit_timestamp_only(self, player, code, language):
         """Phase 1 fallback used when no judge is configured."""
-        name = player["name"]
-        if self.submissions.get(name):
+        token = player["token"]
+        if self.submissions.get(token):
             await self.send_to(
                 player,
                 {"type": "error", "message": "You have already submitted."},
             )
             return
 
-        self.submissions[name] = [{
+        self.submissions[token] = [{
             "code": code,
             "language": language,
             "timestamp": time.time(),
@@ -309,6 +362,7 @@ class Room:
 
     async def _run_judging(self, player, attempt):
         """Background worker: judge one attempt and act on its verdict."""
+        token = player["token"]
         name = player["name"]
         test_cases = self.problem.get("testCases", [])
 
@@ -333,7 +387,7 @@ class Room:
 
         attempt["verdict"] = verdict
         print(f"[Room {self.room_id}] {name} attempt "
-              f"{len(self.submissions.get(name, []))}: "
+              f"{len(self.submissions.get(token, []))}: "
               f"{verdict['pass_count']}/{verdict['total']}")
 
         # The race may have ended (timeout, opponent won, disconnect) while
@@ -350,11 +404,11 @@ class Room:
             "accepted": False,
             "passCount": verdict["pass_count"],
             "totalTests": verdict["total"],
-            "attempt": len(self.submissions.get(name, [])),
+            "attempt": len(self.submissions.get(token, [])),
             "results": self._public_results(verdict["results"]),
         })
 
-        opponent = self.get_opponent(player["ws"])
+        opponent = self.get_opponent_by_token(token)
         if opponent:
             await self.send_to(
                 opponent, {"type": "opponentStatus", "status": "attempted"}
@@ -369,14 +423,14 @@ class Room:
         if self.state != RoomState.RACING:
             return
 
-        self.accepted[player["name"]] = attempt
+        self.accepted[player["token"]] = attempt
 
         await self.send_to(player, {
             "type": "submissionResult",
             "accepted": True,
             "passCount": attempt["verdict"]["pass_count"],
             "totalTests": attempt["verdict"]["total"],
-            "attempt": len(self.submissions.get(player["name"], [])),
+            "attempt": len(self.submissions.get(player["token"], [])),
             "results": self._public_results(attempt["verdict"]["results"]),
         })
 
@@ -397,20 +451,20 @@ class Room:
         if self.state != RoomState.RACING or not self.accepted:
             return
 
-        winner, best = min(
+        winner_token, best = min(
             self.accepted.items(), key=lambda kv: kv[1]["timestamp"]
         )
 
         for p in self.players:
-            name = p["name"]
-            if name == winner:
+            token = p["token"]
+            if token == winner_token:
                 continue
-            pending = self._latest_attempt(name)
+            pending = self._latest_attempt(token)
             if pending is None or pending["timestamp"] >= best["timestamp"]:
                 continue
             if pending["verdict"] is not None:
                 continue  # already decided, and it did not win
-            task = self.judge_tasks.get(name)
+            task = self.judge_tasks.get(token)
             # `task is current_task()` means we are that judging task calling
             # in after recording our own verdict — settled, not in flight.
             if (task and not task.done()
@@ -418,22 +472,23 @@ class Room:
                 # That attempt was sent first and could still beat this one.
                 return
 
-        self.winner_name = winner
+        winner_player = self.get_player_by_token(winner_token)
+        self.winner_name = winner_player["name"] if winner_player else None
         await self.resolve()
 
-    def _latest_attempt(self, name):
+    def _latest_attempt(self, token):
         """The most recent attempt from a player, if any."""
-        attempts = self.submissions.get(name)
+        attempts = self.submissions.get(token)
         return attempts[-1] if attempts else None
 
-    def _best_attempt(self, name):
+    def _best_attempt(self, token):
         """The attempt that stands as this player's result.
 
         A passing attempt always wins; otherwise the highest pass count, with
         the earliest submission breaking ties.
         """
         attempts = [
-            a for a in self.submissions.get(name, []) if a["verdict"] is not None
+            a for a in self.submissions.get(token, []) if a["verdict"] is not None
         ]
         if not attempts:
             return None
@@ -445,6 +500,97 @@ class Room:
                 -a["timestamp"],
             ),
         )
+
+    # ── Working-tree sync (Phase 4) ────────────────────────────
+    # The client is the sole writer; the server just stores whatever the
+    # latest-rev sync sent, as a recovery baseline for a reconnecting client.
+
+    async def handle_sync_tree(self, ws, rev, files):
+        """Accept a newer copy of the player's working buffer.
+
+        Stored directly on the player's session dict, which Lobby.sessions
+        and Room.players both reference — no separate sync path needed.
+        Silently ignores a stale or malformed sync rather than erroring,
+        since this is a best-effort background save, not a request the
+        client is waiting on.
+        """
+        player = self.get_player(ws)
+        if not player:
+            return
+        try:
+            rev = int(rev)
+        except (TypeError, ValueError):
+            return
+        if rev <= player.get("rev", 0):
+            return
+        if not isinstance(files, dict):
+            return
+        try:
+            total_bytes = sum(len(k) + len(v) for k, v in files.items())
+        except TypeError:
+            return
+        if total_bytes > self.MAX_TREE_BYTES:
+            return
+        player["tree"] = files
+        player["rev"] = rev
+
+    # ── Resume (Phase 4) ────────────────────────────────────────
+
+    def _attempt_summary(self, attempt, index):
+        """One submissions[token] entry, shaped like submissionResult but
+        safe to replay (hidden test cases stay stripped)."""
+        verdict = attempt["verdict"]
+        if verdict is None:
+            return {"attempt": index + 1, "judged": False}
+        return {
+            "attempt": index + 1,
+            "judged": True,
+            "accepted": verdict["passed"],
+            "passCount": verdict["pass_count"],
+            "totalTests": verdict["total"],
+            "results": self._public_results(verdict["results"]),
+        }
+
+    def build_resume_payload(self, token):
+        """What to send a reconnecting client, based on current room state.
+
+        A distinct payload per phase: a finished/resolving room just gets
+        its result replayed (nothing left to resume into); a still-racing
+        room gets the full resumeState (problem, remaining time, attempt
+        history, agent transcript, working tree); anything else (countdown)
+        gets a light phase marker — the client just waits for the next
+        broadcast, which will now reach it since its ws is reattached.
+        """
+        player = self.get_player_by_token(token)
+        if not player:
+            return None
+
+        if self.state == RoomState.FINISHED:
+            return self._last_result or {
+                "type": "result", "winner": None, "submissions": []
+            }
+
+        if self.state != RoomState.RACING:
+            return {"type": "resumeState", "phase": self.state}
+
+        opponent = self.get_opponent_by_token(token)
+        elapsed = (time.time() - self.race_start_time) if self.race_start_time else 0
+        remaining = max(0, self.time_limit - elapsed)
+
+        attempts = self.submissions.get(token, [])
+
+        return {
+            "type": "resumeState",
+            "phase": "racing",
+            "problem": self._race_field_whitelist(),
+            "remainingSeconds": remaining,
+            "attempts": [self._attempt_summary(a, i) for i, a in enumerate(attempts)],
+            "agentTranscript": self.agent_sessions.get(token, []),
+            "opponentName": opponent["name"] if opponent else None,
+            "opponentConnected": bool(opponent and opponent.get("ws")),
+            "tree": player.get("tree") or {},
+            "rev": player.get("rev", 0),
+        }
 
     # ── Agent prompting ────────────────────────────────────────
     # The agent is a copilot the player directs — it never submits on its
@@ -497,12 +643,29 @@ class Room:
         together — see _run_agent_prompt), so messages already alternates
         correctly and ends on an "assistant" turn before this appends the
         final user message.
+
+        The stored session (agent_sessions) is already FIFO-capped at
+        AGENT_HISTORY_LIMIT turns, but a long race can still accumulate more
+        history than a single call should carry — trim_messages applies a
+        token-aware cut on top of that, keeping the most recent turns and
+        always starting on a "human" turn so the alternation stays valid.
         """
         system = self._agent_system_prompt(language)
 
-        messages = [
-            {"role": "user" if turn["role"] == "user" else "assistant", "content": turn["content"]}
+        lc_history = [
+            HumanMessage(turn["content"]) if turn["role"] == "user" else AIMessage(turn["content"])
             for turn in history
+        ]
+        lc_history = trim_messages(
+            lc_history,
+            max_tokens=self.AGENT_HISTORY_TOKEN_BUDGET,
+            token_counter=count_tokens_approximately,
+            strategy="last",
+            start_on="human",
+        )
+        messages = [
+            {"role": "user" if isinstance(m, HumanMessage) else "assistant", "content": m.content}
+            for m in lc_history
         ]
 
         # Current code rides on the final message, not the system block,
@@ -535,9 +698,9 @@ class Room:
         player = self.get_player(ws)
         if not player:
             return
-        name = player["name"]
+        token = player["token"]
 
-        existing = self.agent_tasks.get(name)
+        existing = self.agent_tasks.get(token)
         if existing and not existing.done():
             await self.send_to(
                 player,
@@ -545,16 +708,16 @@ class Room:
             )
             return
 
-        self.agent_tasks[name] = asyncio.create_task(
+        self.agent_tasks[token] = asyncio.create_task(
             self._run_agent_prompt(player, agent_type, config, instruction, language, current_code)
         )
 
     async def _run_agent_prompt(self, player, agent_type, config, instruction, language, current_code):
         """Background worker for one agent turn — the actual agent call."""
-        name = player["name"]
-        history = self.agent_sessions.setdefault(name, [])
+        token = player["token"]
+        history = self.agent_sessions.setdefault(token, [])
 
-        opponent = self.get_opponent(player["ws"])
+        opponent = self.get_opponent_by_token(token)
         if opponent:
             await self.send_to(opponent, {"type": "opponentStatus", "status": "agent-thinking"})
 
@@ -582,8 +745,8 @@ class Room:
             # Store the full raw reply, not just the extracted code — that's
             # what lets a follow-up like "why did you use a dict there?"
             # refer back to what the agent actually said, and it's what a
-            # flat-prompt adapter (claude_code) replays with its original
-            # fences intact rather than as bare unlabeled code.
+            # flat-prompt adapter replays with its original fences intact
+            # rather than as bare unlabeled code.
             history.append({"role": "user", "content": instruction})
             history.append({
                 "role": "agent",
@@ -603,14 +766,14 @@ class Room:
             )
 
         if opponent:
-            status = "using-agent" if self.agent_sessions.get(name) else "writing"
+            status = "using-agent" if self.agent_sessions.get(token) else "writing"
             await self.send_to(opponent, {"type": "opponentStatus", "status": status})
 
-    async def _cancel_agent_task(self, name):
+    async def _cancel_agent_task(self, token):
         """Cancel one player's in-flight agent task, if any, and await its
         teardown so the adapter's process-kill `finally` actually runs
         before we move on (room exit, disconnect, etc.)."""
-        task = self.agent_tasks.get(name)
+        task = self.agent_tasks.get(token)
         if task and not task.done():
             task.cancel()
             try:
@@ -621,17 +784,17 @@ class Room:
                 pass
 
     async def _cancel_all_agent_tasks(self):
-        for name in list(self.agent_tasks.keys()):
-            await self._cancel_agent_task(name)
+        for token in list(self.agent_tasks.keys()):
+            await self._cancel_agent_task(token)
 
-    async def _cancel_judge_task(self, name):
+    async def _cancel_judge_task(self, token):
         """Cancel one player's in-flight judging, if any.
 
         Skips the caller's own task: `resolve()` is reached from inside a
         judging task whenever an attempt is accepted, and a task that
         cancelled and then awaited itself would deadlock.
         """
-        task = self.judge_tasks.get(name)
+        task = self.judge_tasks.get(token)
         if task and not task.done() and task is not asyncio.current_task():
             task.cancel()
             try:
@@ -642,8 +805,23 @@ class Room:
                 pass
 
     async def _cancel_all_judge_tasks(self):
-        for name in list(self.judge_tasks.keys()):
-            await self._cancel_judge_task(name)
+        for token in list(self.judge_tasks.keys()):
+            await self._cancel_judge_task(token)
+
+    async def _cancel_grace_task(self, token):
+        task = self.grace_tasks.get(token)
+        if task and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+    async def _cancel_all_grace_tasks(self):
+        for token in list(self.grace_tasks.keys()):
+            await self._cancel_grace_task(token)
 
     # ── Resolution ─────────────────────────────────────────────
 
@@ -672,6 +850,9 @@ class Room:
         # Same for in-flight judging: a verdict for a race that is already
         # over is wasted sandbox work.
         await self._cancel_all_judge_tasks()
+        # And any pending disconnect-grace timers — the race is over, so
+        # there is nothing left for them to concede.
+        await self._cancel_all_grace_tasks()
 
         # Build submission summaries from verdicts already computed at submit
         # time — nothing is judged twice.
@@ -684,11 +865,16 @@ class Room:
         winner = self._determine_winner(submissions_list)
 
         self.state = RoomState.FINISHED
-        await self.broadcast({
+        result_msg = {
             "type": "result",
             "winner": winner,
             "submissions": submissions_list,
-        })
+        }
+        self._last_result = result_msg
+        await self.broadcast(result_msg)
+
+        if self.on_finished:
+            self.on_finished()
 
     def _resolve_with_judge(self):
         """Summarise each player from the verdicts recorded at submit time."""
@@ -696,9 +882,10 @@ class Room:
         submissions_list = []
 
         for p in self.players:
+            token = p["token"]
             name = p["name"]
-            attempts = self.submissions.get(name, [])
-            best = self._best_attempt(name)
+            attempts = self.submissions.get(token, [])
+            best = self._best_attempt(token)
 
             if best is None:
                 submissions_list.append({
@@ -731,8 +918,9 @@ class Room:
         """Fallback: Phase 1 timestamp-only resolution (no judge available)."""
         submissions_list = []
         for p in self.players:
+            token = p["token"]
             name = p["name"]
-            attempts = self.submissions.get(name) or []
+            attempts = self.submissions.get(token) or []
             if attempts:
                 sub = attempts[0]
                 elapsed_ms = int((sub["timestamp"] - self.race_start_time) * 1000)
@@ -812,28 +1000,53 @@ class Room:
 
     # ── Disconnect ─────────────────────────────────────────────
 
-    async def handle_disconnect(self, ws):
-        """Handle a player disconnecting mid-race."""
-        opponent = self.get_opponent(ws)
+    async def handle_disconnect(self, token):
+        """Handle a player's socket closing mid-race.
+
+        A dropped connection is no longer an instant forfeit: the agent
+        task is cancelled (its result can't be delivered and it keeps
+        burning the player's API budget), but in-flight judging is left to
+        finish — the race is decided on submission time, not judging
+        latency (see `_accept`'s strict `<` timestamp comparison), so a
+        player who submitted a winning answer and then dropped should still
+        win. A player who had not attempted yet gets a grace window before
+        conceding on their behalf.
+        """
+        player = self.get_player_by_token(token)
+        if not player:
+            return
+
+        await self._cancel_agent_task(token)
+
+        if self.state != RoomState.RACING:
+            return
+
+        opponent = self.get_opponent_by_token(token)
         if opponent:
             await self.send_to(
                 opponent, {"type": "opponentStatus", "status": "disconnected"}
             )
 
-        # The disconnecting player is gone regardless of whether this ends
-        # the race for the opponent too — don't leave their agent running,
-        # or burn sandbox runs judging an attempt nobody will see.
-        player = self.get_player(ws)
-        if player:
-            await self._cancel_agent_task(player["name"])
-            await self._cancel_judge_task(player["name"])
+        if not self.submissions.get(token):
+            self._start_grace_timer(token)
 
-        # If the race is live and the disconnecting player never attempted,
-        # resolve immediately so the remaining player wins.
-        if self.state == RoomState.RACING:
-            if player and not self.submissions.get(player["name"]):
-                await self.resolve()
-            else:
-                # Cancelling their judging means it will never report back,
-                # so an opponent attempt that was waiting on it can settle.
-                await self._maybe_finish()
+    def _start_grace_timer(self, token):
+        existing = self.grace_tasks.get(token)
+        if existing and not existing.done():
+            return  # already counting down from an earlier drop
+        self.grace_tasks[token] = asyncio.create_task(self._grace_timeout(token))
+
+    async def _grace_timeout(self, token):
+        """Concede on behalf of a player who never reconnected and never
+        attempted. The race clock itself is untouched by any of this — it
+        is an independent task started in start_race, so a dropped
+        connection can never pause it."""
+        await asyncio.sleep(self.DISCONNECT_GRACE_SECONDS)
+        if self.state != RoomState.RACING:
+            return
+        player = self.get_player_by_token(token)
+        if not player or player.get("ws") is not None:
+            return  # reconnected during the grace window
+        if self.submissions.get(token):
+            return  # submitted while we were sleeping
+        await self.resolve()
