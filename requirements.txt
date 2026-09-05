@@ -1,1 +1,2 @@
 aiohttp>=3.9
+langchain-core>=0.3
