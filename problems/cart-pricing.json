@@ -1,0 +1,87 @@
+{
+    "id": "cart-pricing",
+    "title": "Cart Pricing",
+    "kind": "implementation",
+    "description": "The pricing code in cart.py is almost right. One of the two rules in rules.py is\nbeing applied slightly wrong, and carts that sit exactly on a threshold come out\nwith the wrong total.\n\nrules.py is locked and correct. Read it for the rules, then fix cart.py.\n\nInput Format:\n  One cart line per row: three space-separated integers,\n  unitCents bulkCents quantity. Every row belongs to the same cart.\n  Input ends at end of file.\n\nOutput Format:\n  One line per cart row, giving that row's total in cents, in input order.\n  Then one final line with the whole cart's total, including shipping.\n\nExample:\n  Input:\n    250 200 2\n  Output:\n    500\n    999\n  Explanation: the quantity is below the bulk threshold, so both units are\n  charged at the normal price of 250. The cart holds fewer items than the\n  free-shipping minimum, so 499 is added to the subtotal.",
+    "files": {
+        "python": {
+            "files": [
+                {
+                    "path": "rules.py",
+                    "content": "\"\"\"Pricing rules for the store. This file is locked: read it, don't change it.\"\"\"\n\n# A cart line whose quantity is BULK_THRESHOLD or more is charged at the\n# bulk unit price instead of the normal unit price.\nBULK_THRESHOLD = 3\n\n# A cart holding FREE_SHIPPING_ITEMS or more items total ships free.\n# Any smaller cart has SHIPPING_CENTS added to its total.\nFREE_SHIPPING_ITEMS = 5\nSHIPPING_CENTS = 499\n",
+                    "writable": false
+                },
+                {
+                    "path": "cart.py",
+                    "content": "from rules import BULK_THRESHOLD, FREE_SHIPPING_ITEMS, SHIPPING_CENTS\n\n\ndef line_total(unit_cents, bulk_cents, quantity):\n    \"\"\"Cost of a single cart line, in cents.\"\"\"\n    if quantity > BULK_THRESHOLD:\n        return bulk_cents * quantity\n    return unit_cents * quantity\n\n\ndef cart_total(lines):\n    \"\"\"Cost of the whole cart, in cents, including shipping.\n\n    lines is a list of (unit_cents, bulk_cents, quantity) tuples.\n    \"\"\"\n    subtotal = 0\n    item_count = 0\n    for unit_cents, bulk_cents, quantity in lines:\n        subtotal += line_total(unit_cents, bulk_cents, quantity)\n        item_count += quantity\n\n    if item_count >= FREE_SHIPPING_ITEMS:\n        return subtotal\n    return subtotal + SHIPPING_CENTS\n",
+                    "writable": true
+                }
+            ]
+        },
+        "javascript": {
+            "files": [
+                {
+                    "path": "rules.js",
+                    "content": "// Pricing rules for the store. This file is locked: read it, don't change it.\n\n// A cart line whose quantity is BULK_THRESHOLD or more is charged at the\n// bulk unit price instead of the normal unit price.\nconst BULK_THRESHOLD = 3;\n\n// A cart holding FREE_SHIPPING_ITEMS or more items total ships free.\n// Any smaller cart has SHIPPING_CENTS added to its total.\nconst FREE_SHIPPING_ITEMS = 5;\nconst SHIPPING_CENTS = 499;\n\nmodule.exports = { BULK_THRESHOLD, FREE_SHIPPING_ITEMS, SHIPPING_CENTS };\n",
+                    "writable": false
+                },
+                {
+                    "path": "cart.js",
+                    "content": "const { BULK_THRESHOLD, FREE_SHIPPING_ITEMS, SHIPPING_CENTS } = require('./rules');\n\n// Cost of a single cart line, in cents.\nfunction lineTotal(unitCents, bulkCents, quantity) {\n  if (quantity > BULK_THRESHOLD) {\n    return bulkCents * quantity;\n  }\n  return unitCents * quantity;\n}\n\n// Cost of the whole cart, in cents, including shipping.\n// lines is an array of [unitCents, bulkCents, quantity] triples.\nfunction cartTotal(lines) {\n  let subtotal = 0;\n  let itemCount = 0;\n  for (const [unitCents, bulkCents, quantity] of lines) {\n    subtotal += lineTotal(unitCents, bulkCents, quantity);\n    itemCount += quantity;\n  }\n\n  if (itemCount >= FREE_SHIPPING_ITEMS) {\n    return subtotal;\n  }\n  return subtotal + SHIPPING_CENTS;\n}\n\nmodule.exports = { lineTotal, cartTotal };\n",
+                    "writable": true
+                }
+            ]
+        }
+    },
+    "testFiles": {
+        "python": [
+            {
+                "path": "main.py",
+                "content": "import sys\n\nimport cart\n\nlines = []\nfor raw in sys.stdin:\n    parts = raw.split()\n    if len(parts) != 3:\n        continue\n    lines.append((int(parts[0]), int(parts[1]), int(parts[2])))\n\nout = [str(cart.line_total(u, b, q)) for u, b, q in lines]\nout.append(str(cart.cart_total(lines)))\nprint(\"\\n\".join(out))\n"
+            }
+        ],
+        "javascript": [
+            {
+                "path": "main.js",
+                "content": "const cart = require('./cart');\n\nconst raw = require('fs').readFileSync(0, 'utf8');\nconst lines = [];\nfor (const row of raw.split('\\n')) {\n  const parts = row.trim().split(/\\s+/).filter(Boolean);\n  if (parts.length !== 3) continue;\n  lines.push(parts.map(Number));\n}\n\nconst out = lines.map((l) => String(cart.lineTotal(l[0], l[1], l[2])));\nout.push(String(cart.cartTotal(lines)));\nconsole.log(out.join('\\n'));\n"
+            }
+        ]
+    },
+    "testCases": [
+        {
+            "sample": true,
+            "input": "250 200 2",
+            "expectedOutput": "500\n999"
+        },
+        {
+            "sample": true,
+            "input": "250 200 3",
+            "expectedOutput": "600\n1099"
+        },
+        {
+            "sample": true,
+            "input": "250 200 2\n250 200 3\n100 80 5",
+            "expectedOutput": "500\n600\n400\n1500"
+        },
+        {
+            "input": "500 400 3\n100 100 2",
+            "expectedOutput": "1200\n200\n1400"
+        },
+        {
+            "input": "120 100 3\n80 60 3",
+            "expectedOutput": "300\n180\n480"
+        },
+        {
+            "input": "199 150 1\n199 150 3",
+            "expectedOutput": "199\n450\n1148"
+        },
+        {
+            "input": "1000 900 10\n50 40 3",
+            "expectedOutput": "9000\n120\n9120"
+        },
+        {
+            "input": "2500 1999 3",
+            "expectedOutput": "5997\n6496"
+        }
+    ]
+}
