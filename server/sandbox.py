@@ -26,7 +26,8 @@ class Sandbox:
 
     Usage:
         sandbox = Sandbox()
-        result = await sandbox.execute("python", "print('hello')", stdin="")
+        files = [{"path": "solution.py", "content": "print('hello')"}]
+        result = await sandbox.execute("python", files, "solution.py", stdin="")
         # result = { stdout, stderr, exit_code, wall_time_ms, timed_out }
     """
 
@@ -75,17 +76,22 @@ class Sandbox:
     async def execute(
         self,
         language,
-        code,
+        files,
+        entrypoint,
         stdin="",
         cpu_limit=DEFAULT_CPU_LIMIT,
         memory_limit=DEFAULT_MEMORY_LIMIT,
         wall_timeout=DEFAULT_WALL_TIMEOUT,
     ):
-        """Execute code in Piston's sandbox.
+        """Execute a file bundle in Piston's sandbox.
 
         Args:
             language: User-facing language name ("python" or "javascript").
-            code: Source code string to execute.
+            files: List of {"path": str, "content": str} — the full bundle
+                Piston should see (locked + writable files, and the hidden
+                harness when the problem has one).
+            entrypoint: Path (must be present in `files`) that Piston should
+                run — Piston runs whichever file is first in its array.
             stdin: Standard input to feed to the program.
             cpu_limit: CPU time limit in milliseconds.
             memory_limit: Memory limit in bytes.
@@ -100,7 +106,8 @@ class Sandbox:
                 timed_out (bool): True if the process was killed by timeout.
 
         Raises:
-            ValueError: If the language is not supported.
+            ValueError: If the language is not supported, or `entrypoint`
+                is not in `files`.
             aiohttp.ClientError: If Piston is unreachable.
         """
         runtime = LANGUAGE_MAP.get(language)
@@ -110,13 +117,18 @@ class Sandbox:
                 f"Supported: {list(LANGUAGE_MAP.keys())}"
             )
 
-        # Determine file extension for the source file
-        ext = "py" if language == "python" else "js"
+        entry_file = next((f for f in files if f["path"] == entrypoint), None)
+        if entry_file is None:
+            raise ValueError(f"Entrypoint '{entrypoint}' not found in bundle")
+        rest = [f for f in files if f["path"] != entrypoint]
 
         payload = {
             "language": runtime["language"],
             "version": runtime["version"],
-            "files": [{"name": f"solution.{ext}", "content": code}],
+            "files": [
+                {"name": f["path"], "content": f["content"]}
+                for f in [entry_file, *rest]
+            ],
             "stdin": stdin,
             "run_timeout": wall_timeout,
             "compile_timeout": wall_timeout,

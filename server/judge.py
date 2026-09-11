@@ -11,14 +11,38 @@ import time
 # (two players, each retrying) can't flood Piston's job queue.
 MAX_CONCURRENT_TESTS = 4
 
+# A crash string containing one of these looks like an import/syntax error
+# rather than ordinary wrong output — see _detect_import_crash.
+_IMPORT_CRASH_MARKERS = ("ImportError", "ModuleNotFoundError", "SyntaxError", "IndentationError")
+
+
+def _detect_import_crash(results):
+    """If every test case failed with the exact same crash message and it
+    looks like an import/syntax error, surface that as a distinct signal.
+
+    With a harness importing the player's module, a writable file that
+    fails to import fails every test identically — without this, players
+    stare at N identical wrong-answer rows with no clue why.
+    """
+    if not results or any(r["passed"] for r in results):
+        return None
+    errors = {r["error"] for r in results}
+    if len(errors) != 1:
+        return None
+    only_error = next(iter(errors))
+    if only_error and any(marker in only_error for marker in _IMPORT_CRASH_MARKERS):
+        return only_error
+    return None
+
 
 class Judge:
     """Evaluates code submissions against problem test cases.
 
     Usage:
         judge = Judge(sandbox)
-        verdict = await judge.evaluate(code, "python", test_cases)
-        # verdict = { passed, pass_count, total, results: [...] }
+        bundle = {"entrypoint": "solution.py", "files": [{"path": "solution.py", "content": "..."}]}
+        verdict = await judge.evaluate(bundle, "python", test_cases)
+        # verdict = { passed, pass_count, total, results: [...], import_error }
     """
 
     def __init__(self, sandbox):
@@ -29,11 +53,13 @@ class Judge:
         """
         self.sandbox = sandbox
 
-    async def evaluate(self, code, language, test_cases):
-        """Run code against all test cases and produce a verdict.
+    async def evaluate(self, bundle, language, test_cases):
+        """Run a file bundle against all test cases and produce a verdict.
 
         Args:
-            code: Source code string.
+            bundle: {"entrypoint": str, "files": [{"path", "content"}, ...]}
+                — the fully-assembled bundle (locked + writable + hidden
+                harness), identical for every test case; only stdin varies.
             language: Language identifier ("python" or "javascript").
             test_cases: List of dicts, each with "input" and "expectedOutput".
 
@@ -46,6 +72,8 @@ class Judge:
                     input (str), expected (str), actual (str),
                     passed (bool), error (str), timed_out (bool),
                     wall_time_ms (int)
+                import_error (str | None): Set when every case crashed with
+                    the same import/syntax error, for a distinct UI message.
         """
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_TESTS)
 
@@ -59,7 +87,8 @@ class Judge:
                 async with semaphore:
                     exec_result = await self.sandbox.execute(
                         language=language,
-                        code=code,
+                        files=bundle["files"],
+                        entrypoint=bundle["entrypoint"],
                         stdin=tc_input,
                     )
             except asyncio.CancelledError:
@@ -129,4 +158,5 @@ class Judge:
             "pass_count": pass_count,
             "total": total,
             "results": results,
+            "import_error": _detect_import_crash(results),
         }
