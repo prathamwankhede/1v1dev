@@ -21,6 +21,7 @@ from langchain_core.messages import AIMessage, HumanMessage, trim_messages
 from langchain_core.messages.utils import count_tokens_approximately
 
 from server.agents.registry import build_agent
+from server.problems import normalize_bundle
 
 
 class RoomState:
@@ -49,7 +50,8 @@ class Room:
                                     # player's non-attempt becomes a forfeit;
                                     # also reused as the room's post-result
                                     # retention window (see Lobby._teardown_room)
-    MAX_TREE_BYTES = 256 * 1024  # cap on a syncTree payload
+    MAX_TREE_BYTES = 256 * 1024  # cap on a syncTree payload, and reused as
+                                  # the cap on a submitted files map (Phase 5)
 
     def __init__(self, room_id, player1, player2, problem, judge=None, on_finished=None):
         """Create a new room.
@@ -205,12 +207,23 @@ class Room:
         """The problem fields sent to clients — shared by raceStart and
         resumeState so a new field only needs to be added here (per
         CLAUDE.md: adding a problem field means touching problems.py
-        validation and this whitelist, or it silently vanishes)."""
+        validation and this whitelist, or it silently vanishes).
+
+        `files` is the normalized starter bundle for every language
+        (Phase 5) — legacy single-file problems normalize into a
+        one-element bundle via normalize_bundle, so the client has one
+        shape to render regardless of whether the problem declares real
+        `files` or just `starterCode`. The hidden harness (`testFiles`)
+        never appears here — only `files` is client-visible, by design.
+        """
         return {
             "id": self.problem["id"],
             "title": self.problem["title"],
             "description": self.problem["description"],
-            "starterCode": self.problem.get("starterCode", {}),
+            "files": {
+                lang: normalize_bundle(self.problem, lang)
+                for lang in ("python", "javascript")
+            },
             "testCases": self._sample_test_cases(),
             "totalTests": len(self.problem.get("testCases", [])),
             "timeLimitSeconds": self.time_limit,
@@ -260,13 +273,57 @@ class Room:
 
     # ── Submission ─────────────────────────────────────────────
 
-    async def handle_submit(self, ws, code, language):
+    def _assemble_bundle(self, language, submitted_files):
+        """Build the judge-ready bundle for one attempt.
+
+            judge bundle = [hidden harness from testFiles]   ← never sent to the client
+                         + [locked files]                    ← rebuilt server-side
+                         + [player's writable files]         ← the only thing from the wire
+
+        Returns `(files, entrypoint)` on success, or `None` if
+        `submitted_files` names a path the problem doesn't declare at all
+        (not even a locked one) — a broken or hostile client, since the
+        harness path in particular is never supposed to be client-visible.
+        The caller rejects the whole attempt rather than judging it in
+        that case. A path that *is* declared but locked is accepted and
+        simply ignored (readOnly is a UX constraint, not a security
+        boundary — the server rebuilds locked files from the problem
+        regardless of what a client sends for them).
+        """
+        starter = normalize_bundle(self.problem, language)
+        declared_paths = {f["path"] for f in starter["files"]}
+
+        for path in submitted_files:
+            if path not in declared_paths:
+                return None
+
+        files = []
+        for f in starter["files"]:
+            content = submitted_files.get(f["path"], f["content"]) if f["writable"] else f["content"]
+            files.append({"path": f["path"], "content": content})
+
+        test_files = (self.problem.get("testFiles") or {}).get(language)
+        if test_files:
+            # The harness is prepended and becomes the entrypoint — it is
+            # what imports the player's module(s), never sent to the client.
+            files = [{"path": tf["path"], "content": tf["content"]} for tf in test_files] + files
+            entrypoint = test_files[0]["path"]
+        else:
+            entrypoint = starter["entrypoint"]
+
+        return files, entrypoint
+
+    async def handle_submit(self, ws, files, language):
         """Accept one attempt and judge it in the background.
 
         Returns as soon as the attempt is queued. Judging takes seconds and
         this runs inside the player's socket read loop, so blocking here
         would stall everything else that player sends — the same bug fixed
         for agent calls in f245bb7.
+
+        `files` is a {path: content} map of the player's writable files —
+        main.py wraps a legacy bare `code` string into a one-entry map
+        before this is ever called, so this always sees the new shape.
 
         An attempt that fails any test is rejected and the player may fix it
         and submit again; the first attempt to pass every test wins the race.
@@ -287,7 +344,7 @@ class Room:
         # With no judge there is no verdict to retry against, so keep the
         # Phase 1 one-shot, first-to-submit behaviour.
         if not self.judge:
-            await self._handle_submit_timestamp_only(player, code, language)
+            await self._handle_submit_timestamp_only(player, files, language)
             return
 
         in_flight = self.judge_tasks.get(token)
@@ -308,10 +365,28 @@ class Room:
                 "message": f"Wait {remaining}s before resubmitting.",
             })
             return
+
+        if not isinstance(files, dict):
+            files = {}
+        total_bytes = sum(len(k) + len(v) for k, v in files.items() if isinstance(v, str))
+        if total_bytes > self.MAX_TREE_BYTES:
+            await self.send_to(player, {"type": "error", "message": "Submission too large."})
+            return
+
+        assembled = self._assemble_bundle(language, files)
+        if assembled is None:
+            await self.send_to(player, {
+                "type": "error",
+                "message": "Submission references a file this problem doesn't allow editing.",
+            })
+            return
+        bundle_files, entrypoint = assembled
+
         self.last_submit_at[token] = time.monotonic()
 
         attempt = {
-            "code": code,
+            "files": bundle_files,
+            "entrypoint": entrypoint,
             "language": language,
             "timestamp": time.time(),
             "verdict": None,
@@ -332,8 +407,10 @@ class Room:
             self._run_judging(player, attempt)
         )
 
-    async def _handle_submit_timestamp_only(self, player, code, language):
-        """Phase 1 fallback used when no judge is configured."""
+    async def _handle_submit_timestamp_only(self, player, files, language):
+        """Phase 1 fallback used when no judge is configured. Nothing here
+        ever executes the submission, so no bundle assembly is needed —
+        this is just evidence that the player submitted at all."""
         token = player["token"]
         if self.submissions.get(token):
             await self.send_to(
@@ -343,7 +420,7 @@ class Room:
             return
 
         self.submissions[token] = [{
-            "code": code,
+            "files": files,
             "language": language,
             "timestamp": time.time(),
             "verdict": None,
@@ -368,7 +445,9 @@ class Room:
 
         try:
             verdict = await self.judge.evaluate(
-                attempt["code"], attempt["language"], test_cases
+                {"files": attempt["files"], "entrypoint": attempt["entrypoint"]},
+                attempt["language"],
+                test_cases,
             )
         except asyncio.CancelledError:
             raise
@@ -383,6 +462,7 @@ class Room:
                 "pass_count": 0,
                 "total": len(test_cases),
                 "results": [],
+                "import_error": None,
             }
 
         attempt["verdict"] = verdict
@@ -406,6 +486,7 @@ class Room:
             "totalTests": verdict["total"],
             "attempt": len(self.submissions.get(token, [])),
             "results": self._public_results(verdict["results"]),
+            "importError": verdict.get("import_error"),
         })
 
         opponent = self.get_opponent_by_token(token)
@@ -549,6 +630,7 @@ class Room:
             "passCount": verdict["pass_count"],
             "totalTests": verdict["total"],
             "results": self._public_results(verdict["results"]),
+            "importError": verdict.get("import_error"),
         }
 
     def build_resume_payload(self, token):

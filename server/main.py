@@ -18,7 +18,7 @@ if _PROJECT_ROOT not in sys.path:
 import aiohttp
 from aiohttp import web
 
-from server.problems import ProblemBank
+from server.problems import ProblemBank, legacy_solution_path
 from server.lobby import Lobby
 from server.sandbox import Sandbox
 from server.judge import Judge
@@ -72,11 +72,16 @@ async def websocket_handler(request):
                         room = lobby.get_room(ws)
                         print(f"[WS] submit: ws_id={id(ws)}, room={room.room_id if room else 'None'}, room_state={room.state if room else 'N/A'}")
                         if room:
-                            await room.handle_submit(
-                                ws,
-                                data.get("code", ""),
-                                data.get("language", "python"),
-                            )
+                            language = data.get("language", "python")
+                            # Multi-file (Phase 5) clients send `files`, a
+                            # {path: content} map of writable files; a
+                            # legacy bare `code` string wraps into a
+                            # one-entry map keyed by the same path
+                            # normalize_bundle would synthesize for it.
+                            files = data.get("files")
+                            if not isinstance(files, dict):
+                                files = {legacy_solution_path(language): data.get("code", "")}
+                            await room.handle_submit(ws, files, language)
                         else:
                             print(f"[WS] ⚠ No room found! player_rooms keys: {[id(k) for k in lobby.player_rooms.keys()]}")
                     elif msg_type == "agentPrompt":
