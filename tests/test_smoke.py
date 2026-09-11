@@ -77,8 +77,15 @@ class TestProblemBank(unittest.TestCase):
     def test_required_fields(self):
         bank = ProblemBank(PROBLEMS_DIR)
         for p in bank.problems:
-            for field in ("id", "title", "description", "starterCode", "testCases"):
+            for field in ("id", "title", "description", "testCases"):
                 self.assertIn(field, p, f"Problem {p.get('id', '?')} missing '{field}'")
+            # A problem declares its code either the legacy way (starterCode)
+            # or the multi-file way (files), never neither — see
+            # ProblemBank._validate_files.
+            self.assertTrue(
+                p.get("starterCode") or p.get("files"),
+                f"Problem {p.get('id', '?')} has neither 'starterCode' nor 'files'",
+            )
 
     def test_get_random(self):
         bank = ProblemBank(PROBLEMS_DIR)

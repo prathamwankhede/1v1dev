@@ -255,6 +255,41 @@ class TestSessionReconnect(unittest.IsolatedAsyncioTestCase):
         await ws1b.close()
         await ws2.close()
 
+    # ── 8b. Multi-file syncTree round-trips (Phase 5) ─────────────
+
+    async def test_multifile_sync_tree_round_trips_both_writable_files(self):
+        """A multi-file problem's tree carries every writable file's path,
+        not just a single placeholder key — extends the Phase 4 syncTree
+        test rather than duplicating it in test_multifile.py, per the
+        Phase 5 plan's own instruction."""
+        ws1 = await self.session.ws_connect(self.ws_url)
+        ws2 = await self.session.ws_connect(self.ws_url)
+        token1 = await self._join(ws1, "Alice")
+        await self._join(ws2, "Bob")
+        # This class is pinned to two-sum (single-file); resume/tree
+        # handling doesn't care about problem shape, so reuse asyncSetUp's
+        # pin rather than standing up a second server pinned to cart-pricing.
+        await self.recv_type(ws1, "raceStart")
+        await self.recv_type(ws2, "raceStart")
+
+        await ws1.send_json({
+            "type": "syncTree", "rev": 1,
+            "files": {"cart.py": "def f(): pass", "extra.py": "x = 1"},
+        })
+        await asyncio.sleep(0.2)
+
+        with patch.object(Room, "DISCONNECT_GRACE_SECONDS", 5):
+            await ws1.close()
+            ws1b = await self.session.ws_connect(self.ws_url)
+            await ws1b.send_json({"type": "resume", "token": token1})
+            state = await self.recv_type(ws1b, "resumeState")
+
+        self.assertEqual(state["rev"], 1)
+        self.assertEqual(state["tree"], {"cart.py": "def f(): pass", "extra.py": "x = 1"})
+
+        await ws1b.close()
+        await ws2.close()
+
     # ── 9. Name collision no longer shares state ─────────────────
 
     async def test_anonymous_collision_keeps_separate_state(self):
