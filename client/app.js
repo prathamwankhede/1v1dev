@@ -26,6 +26,7 @@ const problemDescription = document.getElementById('problem-description');
 const testCasesContainer = document.getElementById('test-cases-container');
 const languageSelect = document.getElementById('language-select');
 const editorContainer = document.getElementById('editor-container');
+const fileTabsEl = document.getElementById('file-tabs');
 const submitBtn = document.getElementById('submit-btn');
 const verdictPanel = document.getElementById('verdict-panel');
 const countdownOverlay = document.getElementById('countdown-overlay');
@@ -82,6 +83,15 @@ let hasSubmitted = false;
 let timeLimitMs = null;   // from the problem; null → count up as before
 let attemptCount = 0;
 
+// Multi-file problems (Phase 5). `problem.files[lang]` is always the
+// normalized bundle shape now — {entrypoint, files: [{path, content,
+// writable}]} — even for a single-file legacy problem (one writable
+// file). Both languages' docs stay alive across a language switch, so
+// bundles/docs/activePath are keyed by language, not just the current one.
+let bundles = {};      // bundles[lang] = { entrypoint, files: [...] }
+let docs = {};         // docs[lang] = { [path]: CodeMirror.Doc }
+let activePath = {};   // activePath[lang] = "cart.py"
+
 // Session identity + working-tree sync (Phase 4). The token is minted by
 // the server on 'join' and is what survives a dropped connection or a
 // refresh — see phase4_session_reconnect_plan.md.
@@ -128,13 +138,21 @@ function saveWorkingTree(rev, files) {
   } catch (err) { /* ignore */ }
 }
 
-// Placeholder shape: multi-file isn't built yet, so the tree is always a
-// single entry keyed "solution". The map shape is real so a later multi-file
-// migration only has to change what goes in the map, not the sync protocol.
+// Sends every writable file's content for the *active* language only —
+// the same map shape the submit payload carries. A language switch with
+// unsynced edits in the other language relies on its own next debounced
+// sync (or beforeunload) once the player comes back to it.
 function doSyncTree() {
   if (!editor || !ws || ws.readyState !== WebSocket.OPEN) return;
+  const lang = languageSelect.value;
+  const bundle = bundles[lang];
+  if (!bundle) return;
+
   workingRev += 1;
-  const files = { solution: editor.getValue() };
+  const files = {};
+  bundle.files.forEach((f) => {
+    if (f.writable) files[f.path] = docs[lang][f.path].getValue();
+  });
   lastSyncAt = Date.now();
   dirtySince = null;
   saveWorkingTree(workingRev, files);
@@ -160,7 +178,14 @@ window.addEventListener('beforeunload', () => {
   // that's the copy resume() trusts on the next load.
   if (!editor) return;
   try {
-    saveWorkingTree(workingRev + (dirtySince !== null ? 1 : 0), { solution: editor.getValue() });
+    const lang = languageSelect.value;
+    const bundle = bundles[lang];
+    if (!bundle) return;
+    const files = {};
+    bundle.files.forEach((f) => {
+      if (f.writable) files[f.path] = docs[lang][f.path].getValue();
+    });
+    saveWorkingTree(workingRev + (dirtySince !== null ? 1 : 0), files);
   } catch (err) { /* ignore */ }
 });
 
@@ -212,23 +237,14 @@ function formatTime(ms) {
 }
 
 // ── CodeMirror Setup ────────────────────────────────
-function initEditor(starterCode, language) {
-  // Destroy previous instance if any
-  if (editor) {
-    editor.toTextArea();
-  }
-
-  // Create a textarea for CodeMirror to enhance
-  const textarea = document.createElement('textarea');
-  textarea.id = 'code-editor';
-  editorContainer.innerHTML = '';
-  editorContainer.appendChild(textarea);
-
-  const mode = language === 'javascript' ? 'javascript' : 'python';
-  const code = starterCode[language] || starterCode.python || '';
-
-  editor = CodeMirror.fromTextArea(textarea, {
-    mode: mode,
+// One CodeMirror instance for the whole app lifetime; per-file content
+// lives in its own CodeMirror.Doc, and switching files/languages just
+// swaps which Doc the editor is currently displaying. This is what keeps
+// undo history and unsaved edits alive across a tab or language switch —
+// setValue() would discard both.
+function ensureEditor() {
+  if (editor) return;
+  editor = CodeMirror(editorContainer, {
     theme: 'material-darker',
     lineNumbers: true,
     tabSize: 4,
@@ -240,13 +256,76 @@ function initEditor(starterCode, language) {
       'Tab': (cm) => cm.replaceSelection('    ', 'end'),
     },
   });
+  editor.on('change', () => scheduleSync());
+}
 
-  editor.setValue(code);
+// Rebuild bundles/docs/activePath from a fresh problem.files payload — a
+// new race, or a resume, always starts from the server's starter content.
+function buildBundles(problemFiles) {
+  bundles = {};
+  docs = {};
+  activePath = {};
+  Object.keys(problemFiles || {}).forEach((lang) => {
+    const bundle = problemFiles[lang];
+    const mode = lang === 'javascript' ? 'javascript' : 'python';
+    bundles[lang] = bundle;
+    docs[lang] = {};
+    (bundle.files || []).forEach((f) => {
+      docs[lang][f.path] = new CodeMirror.Doc(f.content, mode);
+    });
+    const firstWritable = bundle.files.find((f) => f.writable);
+    activePath[lang] = firstWritable ? firstWritable.path : (bundle.files[0] && bundle.files[0].path);
+  });
+}
+
+function renderFileTabs(lang) {
+  const bundle = bundles[lang];
+  if (!bundle || bundle.files.length <= 1) {
+    fileTabsEl.style.display = 'none';
+    fileTabsEl.innerHTML = '';
+    return;
+  }
+  fileTabsEl.style.display = '';
+  fileTabsEl.innerHTML = bundle.files.map((f) => {
+    const isActive = f.path === activePath[lang];
+    const lock = f.writable ? '' : '<span class="tab-lock">\u{1F512}</span>';
+    return `<button class="file-tab${isActive ? ' active' : ''}" type="button" data-path="${escapeHtml(f.path)}">${lock}${escapeHtml(f.path)}</button>`;
+  }).join('');
+}
+
+// Delegated: tabs re-render on every switch, so a listener per button
+// would leak/duplicate — same pattern as the transcript's Apply buttons.
+fileTabsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.file-tab');
+  if (!btn) return;
+  switchToFile(languageSelect.value, btn.dataset.path);
+});
+
+function switchToFile(lang, path) {
+  const bundle = bundles[lang];
+  if (!bundle || !docs[lang] || !docs[lang][path]) return;
+  activePath[lang] = path;
+  editor.swapDoc(docs[lang][path]);
+  const fileMeta = bundle.files.find((f) => f.path === path);
+  editor.setOption('readOnly', fileMeta ? !fileMeta.writable : false);
+  renderFileTabs(lang);
+}
+
+// problemFiles is problem.files — {lang: {entrypoint, files: [...]}}, the
+// normalized bundle shape for every language (see server _race_field_whitelist).
+function initEditor(problemFiles, language) {
+  ensureEditor();
+  buildBundles(problemFiles);
+
+  const path = activePath[language];
+  if (path) {
+    switchToFile(language, path);
+  } else {
+    renderFileTabs(language);
+  }
 
   // Refresh after a short delay to ensure proper rendering
   setTimeout(() => editor.refresh(), 50);
-
-  editor.on('change', () => scheduleSync());
 }
 
 // ── Problem Rendering ───────────────────────────────
@@ -297,13 +376,19 @@ function setSubmitEnabled(enabled, label) {
 }
 
 function renderVerdict(data) {
-  const { accepted, passCount, totalTests, results, attempt } = data;
+  const { accepted, passCount, totalTests, results, attempt, importError } = data;
   verdictPanel.style.display = '';
   verdictPanel.className = `verdict-panel ${accepted ? 'accepted' : 'rejected'}`;
 
   const heading = accepted
     ? `Accepted — ${passCount}/${totalTests} tests passed`
     : `Rejected — ${passCount}/${totalTests} tests passed`;
+
+  // Every case fails identically when a writable file fails to import —
+  // call that out distinctly instead of N identical wrong-answer rows.
+  const importBanner = importError
+    ? `<div class="verdict-import-error">Your code failed to import:\n${escapeHtml(importError)}</div>`
+    : '';
 
   const rows = (results || []).map((r) => {
     const mark = r.passed ? '✓' : '✗';
@@ -327,6 +412,7 @@ function renderVerdict(data) {
 
   verdictPanel.innerHTML =
     `<div class="verdict-heading">Attempt ${attempt} — ${escapeHtml(heading)}</div>` +
+    importBanner +
     `<ul class="verdict-list">${rows}</ul>`;
 }
 
@@ -542,23 +628,33 @@ function handleResumeState(data) {
   problem = data.problem;
   renderProblem(problem);
   const lang = languageSelect.value;
-  initEditor(problem.starterCode || {}, lang);
+  initEditor(problem.files || {}, lang);
 
-  // Restore the player's own working buffer. localStorage may be ahead of
-  // what last reached the server (it's written on every debounced sync and
-  // again, synchronously, on beforeunload), so whichever rev is higher wins.
+  // Restore the player's own working buffer (writable files for the
+  // language that was active when it was last synced — same scope
+  // doSyncTree writes). localStorage may be ahead of what last reached
+  // the server, so whichever rev is higher wins.
   const stored = loadStoredSession();
   const serverRev = data.rev || 0;
   let rev = serverRev;
-  let files = data.tree || {};
+  let tree = data.tree || {};
   if (stored && stored.rev > serverRev) {
     rev = stored.rev;
-    files = stored.files || {};
+    tree = stored.files || {};
   }
   workingRev = rev;
   dirtySince = null;
-  if (typeof files.solution === 'string' && editor) {
-    editor.setValue(files.solution);
+
+  const bundle = bundles[lang];
+  if (bundle) {
+    bundle.files.forEach((f) => {
+      if (!f.writable) return;
+      // A tree entry naming a path this problem no longer declares is
+      // ignored — nothing to rehydrate it into, and it doesn't get a tab.
+      if (Object.prototype.hasOwnProperty.call(tree, f.path)) {
+        docs[lang][f.path].setValue(tree[f.path]);
+      }
+    });
   }
 
   const attempts = data.attempts || [];
@@ -571,6 +667,7 @@ function handleResumeState(data) {
       totalTests: last.totalTests,
       results: last.results,
       attempt: last.attempt,
+      importError: last.importError,
     });
     setSubmitEnabled(!last.accepted, last.accepted ? ACCEPTED_LABEL : SUBMIT_LABEL);
   } else {
@@ -712,7 +809,7 @@ function handleMessage(data) {
       renderProblem(problem);
       // Initialize editor with starter code
       const lang = languageSelect.value;
-      initEditor(problem.starterCode || {}, lang);
+      initEditor(problem.files || {}, lang);
       // Reset per-race verdict and agent state
       attemptCount = 0;
       verdictPanel.style.display = 'none';
@@ -856,14 +953,17 @@ findMatchBtn.addEventListener('click', () => {
   lobbyMessage.classList.add('pulse');
 });
 
-// Language select
+// Language select — swaps to the other language's whole bundle. Both
+// languages' docs stay alive, so this is non-destructive; no confirm
+// dialog needed, unlike the old single-string overwrite.
 languageSelect.addEventListener('change', () => {
-  if (problem && problem.starterCode && editor) {
-    const lang = languageSelect.value;
-    const mode = lang === 'javascript' ? 'javascript' : 'python';
-    const code = problem.starterCode[lang] || '';
-    editor.setOption('mode', mode);
-    editor.setValue(code);
+  if (!problem || !editor) return;
+  const lang = languageSelect.value;
+  const path = activePath[lang];
+  if (path) {
+    switchToFile(lang, path);
+  } else {
+    renderFileTabs(lang);
   }
 });
 
@@ -875,10 +975,19 @@ submitBtn.addEventListener('click', () => {
   if (submitBtn.disabled || !ws || ws.readyState !== WebSocket.OPEN) return;
   if (!editor) return;
 
-  const code = editor.getValue();
   const language = languageSelect.value;
+  const bundle = bundles[language];
+  if (!bundle) return;
 
-  ws.send(JSON.stringify({ type: 'submit', code, language }));
+  // Read every writable file's own Doc, not editor.getValue() — that only
+  // reflects whichever file is currently swapped in. The server never
+  // sees an entrypoint; it owns that.
+  const files = {};
+  bundle.files.forEach((f) => {
+    if (f.writable) files[f.path] = docs[language][f.path].getValue();
+  });
+
+  ws.send(JSON.stringify({ type: 'submit', language, files }));
   hasSubmitted = true;
   setSubmitEnabled(false, 'Submitting...');
 });
