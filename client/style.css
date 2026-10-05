@@ -3,30 +3,71 @@
    ═══════════════════════════════════════════════════ */
 
 /* ── Design Tokens ───────────────────────────────── */
+/* --ui-* is the flat IDE palette from the Code Arena redesign. Values are
+   what the reference mockup actually renders (its markup classes), not its
+   unused Tailwind `accent` config. The older names below are aliases so the
+   lobby and result screens keep working until they are restyled. */
 :root {
-  --bg-primary: #08090c;
+  /* Surfaces */
+  --ui-bg: #0a0b0d;            /* page ground */
+  --ui-bar: #111215;           /* top bar, footers */
+  --ui-statusbar: #08090a;
+  --ui-left: #0e0f12;          /* problem sidebar */
+  --ui-center: #0b0c0e;        /* editor */
+  --ui-right: #0f1013;         /* Copilot sidebar */
+  --ui-raised: #131417;        /* cards, inputs, active tab */
+  --ui-inset: #090a0c;         /* code blocks, I/O boxes */
+  --ui-hover: rgba(255, 255, 255, 0.05);
+  --ui-border: rgba(255, 255, 255, 0.08);
+  --ui-border-strong: rgba(255, 255, 255, 0.10);
+
+  /* Text. --ui-text-3 is decoration only (line numbers, separators): it is
+     ~4:1 on the panels, below WCAG AA for small text. Labels use --ui-text-2. */
+  --ui-text-strong: #ffffff;
+  --ui-text: #e4e4e7;
+  --ui-text-2: #a1a1aa;
+  --ui-text-3: #71717a;
+
+  /* Accents — text/icon shade, then the solid fill shade */
+  --ui-green: #34d399;
+  --ui-green-solid: #059669;
+  --ui-green-hover: #10b981;
+  --ui-red: #fb7185;
+  --ui-red-solid: #f43f5e;
+  --ui-blue: #60a5fa;
+  --ui-blue-solid: #3b82f6;
+  --ui-purple: #a78bfa;
+  --ui-purple-solid: #7c3aed;
+  --ui-amber: #fbbf24;
+  --ui-amber-soft: #fcd34d;
+
+  --ui-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", sans-serif;
+  --ui-font-mono: "SF Mono", "JetBrains Mono", Menlo, Monaco, ui-monospace, monospace;
+
+  /* Legacy names, aliased onto the palette above */
+  --bg-primary: var(--ui-bg);
   --bg-card: rgba(17, 19, 26, 0.7);
-  --bg-panel: rgba(14, 16, 22, 0.85);
+  --bg-panel: var(--ui-bar);
   --bg-input: rgba(255, 255, 255, 0.04);
-  --border-card: rgba(255, 255, 255, 0.08);
+  --border-card: var(--ui-border);
   --border-subtle: rgba(255, 255, 255, 0.05);
-  --accent-glow: rgba(138, 43, 226, 0.15);
+  --accent-glow: rgba(124, 58, 237, 0.12);
 
-  --text-primary: #f3f4f6;
-  --text-secondary: #9ca3af;
-  --text-dim: #6b7280;
+  --text-primary: var(--ui-text);
+  --text-secondary: var(--ui-text-2);
+  --text-dim: var(--ui-text-3);
 
-  --neon-purple: #a855f7;
-  --neon-blue: #3b82f6;
-  --neon-green: #10b981;
-  --neon-red: #ef4444;
-  --neon-yellow: #f59e0b;
+  --neon-purple: var(--ui-purple);
+  --neon-blue: var(--ui-blue);
+  --neon-green: var(--ui-green);
+  --neon-red: var(--ui-red);
+  --neon-yellow: var(--ui-amber);
 
-  --status-online: #10b981;
-  --status-offline: #ef4444;
+  --status-online: var(--ui-green);
+  --status-offline: var(--ui-red);
 
   --font-sans: 'Outfit', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-mono: var(--ui-font-mono);
 
   --radius-sm: 8px;
   --radius-md: 16px;
@@ -650,19 +691,80 @@ h1 {
   position: relative;
 }
 
-/* CodeMirror overrides for theme consistency */
 .editor-wrapper .CodeMirror {
   height: 100%;
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-  line-height: 1.6;
-  background: transparent;
+  font-family: var(--ui-font-mono);
+  font-size: 13px;
+  line-height: 1.85;
+  /* JetBrains Mono draws >= as ≥. In a race where the bug can be > vs >=,
+     the editor must show exactly the characters typed. */
+  font-variant-ligatures: none;
 }
 
-.editor-wrapper .CodeMirror-gutters {
-  background: rgba(255, 255, 255, 0.02);
-  border-right: 1px solid var(--border-subtle);
+/* ── CodeMirror theme: 1v1dev ────────────────────────
+   Colours from the redesign mockup's syntax tokens. CodeMirror's Python
+   and JavaScript modes tag an all-caps name as a plain variable, so
+   `cm-constant` comes from an overlay added in editor.js. */
+.cm-s-1v1dev.CodeMirror {
+  background: var(--ui-center);
+  color: var(--ui-text);
 }
+
+.cm-s-1v1dev .CodeMirror-gutters {
+  background: rgba(9, 10, 12, 0.4);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cm-s-1v1dev .CodeMirror-linenumber {
+  color: #52525b;
+  padding: 0 10px 0 6px;
+}
+
+.cm-s-1v1dev .CodeMirror-cursor {
+  border-left: 2px solid var(--ui-green);
+}
+
+.cm-s-1v1dev div.CodeMirror-selected,
+.cm-s-1v1dev.CodeMirror-focused div.CodeMirror-selected {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.cm-s-1v1dev .CodeMirror-line::selection,
+.cm-s-1v1dev .CodeMirror-line > span::selection,
+.cm-s-1v1dev .CodeMirror-line > span > span::selection {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.cm-s-1v1dev .CodeMirror-activeline-background {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cm-s-1v1dev .CodeMirror-matchingbracket {
+  color: var(--ui-text-strong) !important;
+  outline: 1px solid rgba(52, 211, 153, 0.5);
+}
+
+.cm-s-1v1dev .cm-keyword { color: #f43f5e; font-weight: 500; }
+.cm-s-1v1dev .cm-def,
+.cm-s-1v1dev .cm-builtin { color: #38bdf8; font-weight: 500; }
+.cm-s-1v1dev .cm-variable-2,
+.cm-s-1v1dev .cm-number { color: #fb923c; }
+.cm-s-1v1dev .cm-string,
+.cm-s-1v1dev .cm-string-2 { color: #a3e635; }
+.cm-s-1v1dev .cm-operator,
+.cm-s-1v1dev .cm-variable,
+.cm-s-1v1dev .cm-property { color: #e2e8f0; }
+.cm-s-1v1dev .cm-meta { color: #38bdf8; }
+.cm-s-1v1dev .cm-comment { color: #64748b; font-style: italic; }
+
+/* After .cm-variable on purpose: an overlay span carries both classes
+   ("cm-variable cm-overlay cm-constant"), so source order decides. The
+   overlay also runs inside strings and comments; there the base token
+   keeps its colour. */
+.cm-s-1v1dev .cm-atom,
+.cm-s-1v1dev .cm-constant { color: #f87171; }
+.cm-s-1v1dev .cm-comment.cm-constant { color: #64748b; }
+.cm-s-1v1dev .cm-string.cm-constant { color: #a3e635; }
 
 /* File Tabs (multi-file problems) */
 .file-tabs {
@@ -1168,8 +1270,14 @@ h1 {
 /* ═══════════════════════════════════════════════════
    SCROLLBAR
    ═══════════════════════════════════════════════════ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {

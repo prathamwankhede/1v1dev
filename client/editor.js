@@ -25,6 +25,19 @@ export function setEditorChangeHandler(fn) {
   onChange = fn;
 }
 
+// Tags ALL_CAPS names as `cm-constant` (BULK_THRESHOLD, SHIPPING_CENTS),
+// which the Python and JavaScript modes leave as plain variables. It eats
+// whole words, so a capital run inside a longer identifier never matches.
+const CONSTANT_OVERLAY = {
+  token(stream) {
+    if (stream.eatWhile(/\w/)) {
+      return /^[A-Z][A-Z0-9_]+$/.test(stream.current()) ? 'constant' : null;
+    }
+    stream.next();
+    return null;
+  },
+};
+
 // ── CodeMirror Setup ────────────────────────────────
 // One CodeMirror instance for the whole app lifetime; per-file content
 // lives in its own CodeMirror.Doc, and switching files/languages just
@@ -34,7 +47,7 @@ export function setEditorChangeHandler(fn) {
 function ensureEditor() {
   if (editor) return;
   editor = CodeMirror(editorContainer, {
-    theme: 'material-darker',
+    theme: '1v1dev',
     lineNumbers: true,
     tabSize: 4,
     indentUnit: 4,
@@ -45,6 +58,8 @@ function ensureEditor() {
       'Tab': (cm) => cm.replaceSelection('    ', 'end'),
     },
   });
+  // Overlays belong to the editor, not a Doc, so this survives swapDoc.
+  editor.addOverlay(CONSTANT_OVERLAY);
   editor.on('change', () => {
     if (onChange) onChange();
   });
