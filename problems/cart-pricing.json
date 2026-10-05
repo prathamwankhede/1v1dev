@@ -2,6 +2,14 @@
     "id": "cart-pricing",
     "title": "Cart Pricing",
     "kind": "implementation",
+    "difficulty": "medium",
+    "category": "Pricing Engine",
+    "summary": "The pricing code in `cart.py` is almost right. One of the two rules in `rules.py` is being applied slightly wrong, and carts that sit exactly on a threshold come out with the wrong total. Print each cart row's total in cents, in input order, then one final line with the whole cart's total including shipping.",
+    "inputSpec": {
+        "summary": "One cart line per row: three space-separated integers, representing:",
+        "fields": ["unitCents", "bulkCents", "quantity"],
+        "note": "Every row belongs to the same cart. Input ends at end of file."
+    },
     "description": "The pricing code in cart.py is almost right. One of the two rules in rules.py is\nbeing applied slightly wrong, and carts that sit exactly on a threshold come out\nwith the wrong total.\n\nrules.py is locked and correct. Read it for the rules, then fix cart.py.\n\nInput Format:\n  One cart line per row: three space-separated integers,\n  unitCents bulkCents quantity. Every row belongs to the same cart.\n  Input ends at end of file.\n\nOutput Format:\n  One line per cart row, giving that row's total in cents, in input order.\n  Then one final line with the whole cart's total, including shipping.\n\nExample:\n  Input:\n    250 200 2\n  Output:\n    500\n    999\n  Explanation: the quantity is below the bulk threshold, so both units are\n  charged at the normal price of 250. The cart holds fewer items than the\n  free-shipping minimum, so 499 is added to the subtotal.",
     "files": {
         "python": {

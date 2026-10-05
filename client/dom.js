@@ -36,6 +36,7 @@ export const languageSelect = document.getElementById('language-select');
 export const editorContainer = document.getElementById('editor-container');
 export const fileTabsEl = document.getElementById('file-tabs');
 export const submitBtn = document.getElementById('submit-btn');
+export const attemptStatus = document.getElementById('attempt-status');
 export const verdictPanel = document.getElementById('verdict-panel');
 export const countdownOverlay = document.getElementById('countdown-overlay');
 export const countdownNumber = document.getElementById('countdown-number');

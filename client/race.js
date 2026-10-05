@@ -1,18 +1,17 @@
 /* ═══════════════════════════════════════════════════
-   1v1dev — Race view: timer, problem, verdicts, submit, result
+   1v1dev — Race view: timer, matchup, opponent status, submit, result
    ═══════════════════════════════════════════════════ */
 
 import {
   raceTopbar, timerCapsule, timerProgressBar, raceTimer,
   youNameEl, youAvatar, opponentNameEl, opponentAvatar,
   opponentStatusBadge, opponentStatusText,
-  problemTitle, problemDescription, testCasesContainer,
-  languageSelect, submitBtn, verdictPanel,
+  languageSelect, submitBtn, attemptStatus,
   resultCard, resultIcon, resultTitle, resultSubtitle,
   resultYourName, resultYourTime, resultOppName, resultOppTime,
   showView,
 } from './dom.js';
-import { escapeHtml, formatTime } from './util.js';
+import { formatTime } from './util.js';
 import { state } from './state.js';
 import { ws } from './ws.js';
 import { editor, bundles, writableFiles } from './editor.js';
@@ -75,25 +74,6 @@ export function stopTimer() {
   }
 }
 
-// ── Problem Rendering ───────────────────────────────
-export function renderProblem(prob) {
-  problemTitle.textContent = prob.title;
-  problemDescription.textContent = prob.description;
-
-  testCasesContainer.innerHTML = '';
-  (prob.testCases || []).forEach((tc, i) => {
-    const div = document.createElement('div');
-    div.className = 'test-case';
-    div.innerHTML = `
-      <div class="test-case-label">Input</div>
-      <pre>${escapeHtml(tc.input)}</pre>
-      <div class="test-case-label" style="margin-top: 0.5rem;">Expected Output</div>
-      <pre>${escapeHtml(tc.expectedOutput)}</pre>
-    `;
-    testCasesContainer.appendChild(div);
-  });
-}
-
 // ── Opponent Status ─────────────────────────────────
 export function setOpponentStatus(status) {
   opponentStatusBadge.className = `opp-status ${status}`;
@@ -116,59 +96,20 @@ export function setSubmitEnabled(enabled, label) {
   if (label) submitBtn.innerHTML = label;
 }
 
-export function renderVerdict(data) {
-  const { accepted, passCount, totalTests, results, attempt, importError } = data;
-  verdictPanel.style.display = '';
-  verdictPanel.className = `verdict-panel ${accepted ? 'accepted' : 'rejected'}`;
-
-  const heading = accepted
-    ? `Accepted — ${passCount}/${totalTests} tests passed`
-    : `Rejected — ${passCount}/${totalTests} tests passed`;
-
-  // Every case fails identically when a writable file fails to import —
-  // call that out distinctly instead of N identical wrong-answer rows.
-  const importBanner = importError
-    ? `<div class="verdict-import-error">Your code failed to import:\n${escapeHtml(importError)}</div>`
-    : '';
-
-  const rows = (results || []).map((r) => {
-    const mark = r.passed ? '✓' : '✗';
-    const cls = r.passed ? 'pass' : 'fail';
-    const name = r.hidden ? `Hidden test ${r.index}` : `Test ${r.index}`;
-    let detail = '';
-    // Hidden cases never carry input/expected, so there is nothing to show
-    // beyond the pass mark and any crash message.
-    if (!r.passed && !r.hidden) {
-      detail =
-        `<pre class="verdict-diff">` +
-        `input:    ${escapeHtml(r.input || '')}\n` +
-        `expected: ${escapeHtml(r.expected || '')}\n` +
-        `actual:   ${escapeHtml(r.actual || '')}</pre>`;
-    } else if (!r.passed && r.error) {
-      detail = `<pre class="verdict-diff">${escapeHtml(r.error)}</pre>`;
-    }
-    return `<li class="verdict-row ${cls}"><span class="verdict-mark">${mark}</span>` +
-           `<span>${name}</span>${detail}</li>`;
-  }).join('');
-
-  verdictPanel.innerHTML =
-    `<div class="verdict-heading">Attempt ${attempt} — ${escapeHtml(heading)}</div>` +
-    importBanner +
-    `<ul class="verdict-list">${rows}</ul>`;
+// Footer status line: the latest attempt's outcome, or a server error
+// (resubmit cooldown, judging still in flight). The per-test detail lives
+// in the problem sidebar's Submissions tab.
+export function setAttemptStatus(text, tone) {
+  attemptStatus.textContent = text || '';
+  attemptStatus.className = `attempt-status${tone ? ` ${tone}` : ''}`;
 }
 
-export function hideVerdict() {
-  verdictPanel.style.display = 'none';
-  verdictPanel.innerHTML = '';
-}
-
-// A server 'error' (resubmit cooldown, judging still in flight) shown in
-// the verdict slot, so a rejected submit never leaves the player guessing.
-export function renderVerdictError(message) {
-  verdictPanel.style.display = '';
-  verdictPanel.className = 'verdict-panel rejected';
-  verdictPanel.innerHTML =
-    `<div class="verdict-heading">${escapeHtml(message || 'Error')}</div>`;
+export function attemptSummaryText(a) {
+  if (!a) return '';
+  if (a.judged === false) return `Judging attempt ${a.attempt}…`;
+  const outcome = a.accepted ? 'accepted' : 'rejected';
+  const crash = a.importError ? ' · import error' : '';
+  return `Attempt ${a.attempt} ${outcome} · ${a.passCount}/${a.totalTests} passed${crash}`;
 }
 
 // Submit button

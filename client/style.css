@@ -890,6 +890,55 @@ h1 {
 }
 
 /* ── Problem sidebar ─────────────────────────────── */
+/* Tab row in the sidebar header: Problem · Rules Ref · Test Cases · Submissions */
+.problem-tabs {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.problem-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--ui-text-2);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.problem-tab:hover {
+  color: var(--ui-text);
+}
+
+.problem-tab.active {
+  background: #27272a;
+  border-bottom-color: var(--ui-green);
+  color: var(--ui-text-strong);
+  font-weight: 500;
+}
+
+.problem-tab[hidden] {
+  display: none;
+}
+
+.tab-count:not(:empty) {
+  padding: 0 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ui-text);
+  font-size: 10px;
+}
+
 .problem-content {
   padding: 16px;
   display: flex;
@@ -898,6 +947,54 @@ h1 {
   font-size: 12px;
   line-height: 1.65;
   color: var(--ui-text);
+}
+
+.problem-content[hidden] {
+  display: none;
+}
+
+.problem-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: -10px;
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  color: var(--ui-text-2);
+}
+
+.problem-meta[hidden] {
+  display: none;
+}
+
+.crumb-sep {
+  color: var(--ui-text-3);
+}
+
+.difficulty-chip {
+  padding: 0 6px;
+  border: 1px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.difficulty-chip.easy {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--ui-green);
+}
+
+.difficulty-chip.medium {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: var(--ui-amber-soft);
+}
+
+.difficulty-chip.hard {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.3);
+  color: var(--ui-red);
 }
 
 .problem-title {
@@ -918,67 +1015,409 @@ h1 {
 }
 
 .problem-description {
-  /* pre-wrap, not pre-line: problem specs indent their command tables and
-     examples, and pre-line collapses those runs of spaces. */
-  white-space: pre-wrap;
   font-size: 12px;
   line-height: 1.7;
   color: var(--ui-text);
 }
 
-.test-cases-section {
+/* A full problem statement (no summary): keep its indentation.
+   pre-wrap, not pre-line: specs indent their command tables and examples,
+   and pre-line collapses those runs of spaces. */
+.problem-description.as-statement {
+  white-space: pre-wrap;
+}
+
+.code-chip {
+  padding: 1px 4px;
+  background: #18181b;
+  border: 1px solid var(--ui-border-strong);
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+}
+
+.code-chip.chip-writable {
+  color: #fda4af;
+}
+
+.code-chip.chip-locked {
+  color: var(--ui-amber-soft);
+}
+
+/* File Constraint callout */
+.constraint-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(245, 158, 11, 0.05);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  border-left: 2px solid var(--ui-amber);
+  color: rgba(253, 230, 138, 0.9);
+  line-height: 1.6;
+}
+
+.constraint-callout[hidden] {
+  display: none;
+}
+
+.constraint-callout svg {
+  color: var(--ui-amber);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.constraint-callout strong {
+  color: var(--ui-amber-soft);
+}
+
+.constraint-callout .code-chip {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* Input specification */
+.input-spec {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--ui-border);
 }
 
-#test-cases-container {
+.input-spec[hidden] {
+  display: none;
+}
+
+.spec-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(9, 10, 12, 0.8);
+  border: 1px solid var(--ui-border-strong);
+}
+
+.field-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.field-chip {
+  padding: 1px 6px;
+  background: #18181b;
+  border: 1px solid var(--ui-border-strong);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+}
+
+.field-chip.tone-sky { color: #38bdf8; }
+.field-chip.tone-green { color: var(--ui-green); }
+.field-chip.tone-amber { color: var(--ui-amber); }
+
+.spec-note {
+  font-style: italic;
+  font-size: 11px;
+  color: var(--ui-text-2);
+}
+
+/* Example cases */
+.test-cases-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.section-count {
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  color: var(--ui-text-2);
+}
+
+#test-cases-container,
+.cases-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.test-case {
+.case-card {
   border: 1px solid var(--ui-border-strong);
   background: rgba(9, 10, 12, 0.6);
-  padding: 10px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px 8px;
-  font-family: var(--ui-font-mono);
-  font-size: 12px;
 }
 
-.test-case-label {
+.case-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(24, 24, 27, 0.9);
+  border-bottom: 1px solid var(--ui-border-strong);
+}
+
+.case-name {
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+.case-badge {
+  padding: 0 4px;
+  border: 1px solid;
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.case-badge.not-run {
+  background: #27272a;
+  border-color: var(--ui-border-strong);
+  color: var(--ui-text-2);
+}
+
+.case-badge.judging {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--ui-blue);
+  animation: blink 1.4s infinite;
+}
+
+.case-badge.passed {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: var(--ui-green);
+}
+
+.case-badge.failed {
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.25);
+  color: var(--ui-red);
+}
+
+.case-copy {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: var(--ui-text-2);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.case-copy:hover {
+  color: var(--ui-text);
+}
+
+.case-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px;
+}
+
+.case-wide {
+  grid-column: 1 / -1;
+}
+
+.case-label {
+  display: block;
+  margin-bottom: 4px;
   font-family: var(--ui-font-mono);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ui-text-2);
-  margin: 0 !important;
 }
 
-.test-case pre {
+.case-io {
   margin: 0;
   padding: 8px;
   background: rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.05);
   color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-ligatures: none;
   white-space: pre;
   overflow-x: auto;
+}
+
+.case-io.expected {
+  color: var(--ui-green);
+}
+
+.case-io.actual {
+  color: var(--ui-red);
+  border-color: rgba(244, 63, 94, 0.2);
+}
+
+.case-error {
+  margin: 0 10px 10px;
+  padding: 6px 8px;
+  background: rgba(244, 63, 94, 0.06);
+  border: 1px solid rgba(244, 63, 94, 0.2);
+  color: var(--ui-red);
   font-family: var(--ui-font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
   font-variant-ligatures: none;
 }
 
-/* Two columns: Input | Expected. The legacy markup is label, pre, label,
-   pre, so place each by order. */
-.test-case > :nth-child(1) { grid-column: 1; grid-row: 1; }
-.test-case > :nth-child(2) { grid-column: 1; grid-row: 2; }
-.test-case > :nth-child(3) { grid-column: 2; grid-row: 1; }
-.test-case > :nth-child(4) { grid-column: 2; grid-row: 2; color: var(--ui-green); }
+.import-error-slot[hidden],
+.hidden-summary[hidden],
+.problem-full[hidden] {
+  display: none;
+}
+
+.hidden-summary {
+  padding: 8px 10px;
+  border: 1px dashed var(--ui-border-strong);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  color: var(--ui-text-2);
+}
+
+/* Full statement, collapsed under the summary */
+.problem-full {
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.problem-full summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.problem-full .problem-description {
+  margin-top: 10px;
+}
+
+/* Rules Ref tab */
+#rules-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rules-file {
+  border: 1px solid var(--ui-border-strong);
+}
+
+.rules-file-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(24, 24, 27, 0.9);
+  border-bottom: 1px solid var(--ui-border-strong);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  color: var(--ui-text);
+}
+
+.rules-file-head svg {
+  color: var(--ui-amber);
+}
+
+.rules-file-tag {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ui-text-2);
+}
+
+pre.rules-code {
+  margin: 0;
+  padding: 10px;
+  background: var(--ui-center);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  font-variant-ligatures: none;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* Submissions tab */
+.submissions-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.submissions-empty {
+  padding: 16px 0;
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  color: var(--ui-text-2);
+}
+
+.attempt-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(9, 10, 12, 0.6);
+  border: 1px solid var(--ui-border-strong);
+  border-left: 2px solid var(--ui-text-3);
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attempt-row:hover {
+  background: var(--ui-hover);
+}
+
+.attempt-row.selected {
+  background: #18181b;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.attempt-row.accepted { border-left-color: var(--ui-green); }
+.attempt-row.rejected { border-left-color: var(--ui-red); }
+.attempt-row.pending { border-left-color: var(--ui-blue); }
+
+.attempt-num {
+  font-weight: 700;
+}
+
+.attempt-time {
+  color: var(--ui-text-2);
+}
+
+.attempt-row.accepted .attempt-outcome { color: var(--ui-green); }
+.attempt-row.rejected .attempt-outcome { color: var(--ui-red); }
+.attempt-row.pending .attempt-outcome { color: var(--ui-blue); }
+
+.attempt-flag {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: var(--ui-red);
+  font-size: 9px;
+  text-transform: uppercase;
+}
 
 /* ── Verdicts ────────────────────────────────────── */
 .verdict-panel {
@@ -1266,6 +1705,9 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.attempt-status.accepted { color: var(--ui-green); }
+.attempt-status.rejected { color: var(--ui-red); }
 
 .btn-submit {
   display: flex;

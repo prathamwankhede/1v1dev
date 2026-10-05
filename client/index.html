@@ -145,11 +145,11 @@
         <!-- Problem sidebar -->
         <aside id="problem-sidebar" class="sidebar sidebar-left" aria-label="Problem">
           <div class="sidebar-header">
-            <div class="sidebar-title">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-              </svg>
-              Problem
+            <div class="problem-tabs" role="tablist" aria-label="Problem panels">
+              <button class="problem-tab active" type="button" role="tab" aria-selected="true" data-problem-tab="problem">Problem</button>
+              <button class="problem-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-problem-tab="rules" hidden>Rules Ref</button>
+              <button class="problem-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-problem-tab="cases">Test Cases</button>
+              <button class="problem-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-problem-tab="submissions">Submissions<span class="tab-count" id="submissions-count"></span></button>
             </div>
             <button class="sidebar-collapse" type="button" data-collapse="left"
                     aria-controls="problem-sidebar" aria-expanded="true" aria-label="Collapse problem panel">
@@ -166,24 +166,51 @@
             </svg>
           </div>
           <div class="sidebar-body">
-            <div class="problem-content">
+            <!-- Problem tab -->
+            <div class="problem-content" data-problem-panel="problem" role="tabpanel">
+              <div class="problem-meta" id="problem-meta" hidden></div>
               <h1 class="problem-title">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 <span id="problem-title">Problem</span>
               </h1>
-              <div class="problem-description" id="problem-description">
-                <!-- Problem text rendered here -->
-              </div>
+              <!-- The problem's summary (with code chips), or its full
+                   description when it has no summary. -->
+              <div class="problem-description" id="problem-description"></div>
+              <!-- Derived from the bundle: shown when a file is locked. -->
+              <div class="constraint-callout" id="problem-constraint" hidden></div>
+              <section class="input-spec" id="problem-input-spec" hidden></section>
               <section class="test-cases-section">
-                <h2 class="ui-label">Example Test Cases</h2>
-                <div id="test-cases-container">
-                  <!-- Test cases rendered here -->
+                <div class="section-head">
+                  <h2 class="ui-label">Example Test Cases</h2>
+                  <span class="section-count" id="case-count"></span>
                 </div>
+                <div class="import-error-slot" hidden></div>
+                <div id="test-cases-container"></div>
               </section>
-              <!-- Verdict for the player's latest attempt. A rejected attempt
-                   can be fixed and resubmitted. -->
+              <details class="problem-full" id="problem-full" hidden>
+                <summary class="ui-label">Full problem statement</summary>
+                <div class="problem-description as-statement" id="problem-full-text"></div>
+              </details>
+            </div>
+
+            <!-- Rules Ref tab: read-only, highlighted locked files -->
+            <div class="problem-content" data-problem-panel="rules" role="tabpanel" hidden>
+              <div id="rules-ref"></div>
+            </div>
+
+            <!-- Test Cases tab -->
+            <div class="problem-content" data-problem-panel="cases" role="tabpanel" hidden>
+              <div class="import-error-slot" hidden></div>
+              <div id="all-cases" class="cases-list"></div>
+              <div class="hidden-summary" id="hidden-summary" hidden></div>
+            </div>
+
+            <!-- Submissions tab: attempts newest first; the selected one's
+                 per-test results render in #verdict-panel. -->
+            <div class="problem-content" data-problem-panel="submissions" role="tabpanel" hidden>
+              <ol class="submissions-list" id="submissions-list"></ol>
               <div id="verdict-panel" class="verdict-panel" style="display:none;"></div>
             </div>
           </div>

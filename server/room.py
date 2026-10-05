@@ -216,7 +216,7 @@ class Room:
         `files` or just `starterCode`. The hidden harness (`testFiles`)
         never appears here — only `files` is client-visible, by design.
         """
-        return {
+        fields = {
             "id": self.problem["id"],
             "title": self.problem["title"],
             "description": self.problem["description"],
@@ -229,6 +229,20 @@ class Room:
             "timeLimitSeconds": self.time_limit,
             "kind": self.problem.get("kind", "algorithmic"),
         }
+        # Optional display-only fields for the Problem tab — sent only when
+        # the problem declares them, so a legacy problem's payload is
+        # unchanged and the client falls back to `description`.
+        for key in ("difficulty", "category", "summary", "inputSpec"):
+            if key in self.problem:
+                fields[key] = self.problem[key]
+        return fields
+
+    def _submitted_at_ms(self, attempt):
+        """When an attempt was submitted, in ms from race start — what the
+        Submissions tab shows, and the same clock `timeMs` uses."""
+        if not self.race_start_time:
+            return 0
+        return max(0, int((attempt["timestamp"] - self.race_start_time) * 1000))
 
     async def start_race(self):
         """Broadcast the problem and begin the race timer."""
@@ -485,6 +499,7 @@ class Room:
             "passCount": verdict["pass_count"],
             "totalTests": verdict["total"],
             "attempt": len(self.submissions.get(token, [])),
+            "submittedAtMs": self._submitted_at_ms(attempt),
             "results": self._public_results(verdict["results"]),
             "importError": verdict.get("import_error"),
         })
@@ -512,6 +527,7 @@ class Room:
             "passCount": attempt["verdict"]["pass_count"],
             "totalTests": attempt["verdict"]["total"],
             "attempt": len(self.submissions.get(player["token"], [])),
+            "submittedAtMs": self._submitted_at_ms(attempt),
             "results": self._public_results(attempt["verdict"]["results"]),
         })
 
@@ -621,11 +637,13 @@ class Room:
         """One submissions[token] entry, shaped like submissionResult but
         safe to replay (hidden test cases stay stripped)."""
         verdict = attempt["verdict"]
+        submitted_at_ms = self._submitted_at_ms(attempt)
         if verdict is None:
-            return {"attempt": index + 1, "judged": False}
+            return {"attempt": index + 1, "judged": False, "submittedAtMs": submitted_at_ms}
         return {
             "attempt": index + 1,
             "judged": True,
+            "submittedAtMs": submitted_at_ms,
             "accepted": verdict["passed"],
             "passCount": verdict["pass_count"],
             "totalTests": verdict["total"],

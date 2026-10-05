@@ -8,9 +8,10 @@ import {
 } from './dom.js';
 import { state } from './state.js';
 import {
-  startTimer, renderProblem, renderVerdict, hideVerdict,
-  setSubmitEnabled, setOpponentStatus, renderMatchup,
+  startTimer, setSubmitEnabled, setOpponentStatus, renderMatchup,
+  setAttemptStatus, attemptSummaryText,
 } from './race.js';
+import { renderProblem, restoreAttempts } from './problem-panel.js';
 import { applyRaceLayout } from './layout.js';
 import { initEditor, bundles, docs } from './editor.js';
 import { loadStoredSession } from './session.js';
@@ -71,19 +72,13 @@ export function handleResumeState(data) {
 
   const attempts = data.attempts || [];
   state.attemptCount = attempts.length;
+  restoreAttempts(attempts);
   const last = attempts[attempts.length - 1];
+  setAttemptStatus(attemptSummaryText(last),
+                   last && last.judged ? (last.accepted ? 'accepted' : 'rejected') : '');
   if (last && last.judged) {
-    renderVerdict({
-      accepted: last.accepted,
-      passCount: last.passCount,
-      totalTests: last.totalTests,
-      results: last.results,
-      attempt: last.attempt,
-      importError: last.importError,
-    });
     setSubmitEnabled(!last.accepted, last.accepted ? ACCEPTED_LABEL : SUBMIT_LABEL);
   } else {
-    hideVerdict();
     setSubmitEnabled(true, SUBMIT_LABEL);
   }
 

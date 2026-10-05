@@ -7,6 +7,12 @@ from typing import List, Optional, Union
 
 REQUIRED_FIELDS = ("id", "title", "description", "testCases")
 
+# Optional, display-only fields for the race view's Problem tab. They
+# duplicate contract text that must still live in full in `description`,
+# because the agent is given `description` verbatim (see
+# Room._build_agent_context).
+DIFFICULTIES = ("easy", "medium", "hard")
+
 
 def legacy_solution_path(language):
     """Filename a bare `code` string (the pre-Phase-5 wire shape) maps to —
@@ -71,9 +77,39 @@ class ProblemBank:
                         f"Problem {path.name} missing required field: {field}"
                     )
             self._validate_files(problem, path.name)
+            self._validate_display_fields(problem, path.name)
             self.problems.append(problem)
         if not self.problems:
             raise ValueError(f"No problems found in {self.problems_dir}")
+
+    def _validate_display_fields(self, problem, filename):
+        """Type checks for the optional Problem-tab fields, so a typo fails
+        at startup instead of rendering wrong in a player's browser."""
+        difficulty = problem.get("difficulty")
+        if difficulty is not None and difficulty not in DIFFICULTIES:
+            raise ValueError(
+                f"Problem {filename}: difficulty must be one of {DIFFICULTIES}, "
+                f"got {difficulty!r}"
+            )
+        for key in ("category", "summary"):
+            if key in problem and not isinstance(problem[key], str):
+                raise ValueError(f"Problem {filename}: '{key}' must be a string")
+
+        spec = problem.get("inputSpec")
+        if spec is None:
+            return
+        if not isinstance(spec, dict):
+            raise ValueError(f"Problem {filename}: 'inputSpec' must be an object")
+        for key in ("summary", "note"):
+            if key in spec and not isinstance(spec[key], str):
+                raise ValueError(f"Problem {filename}: 'inputSpec.{key}' must be a string")
+        fields = spec.get("fields")
+        if fields is not None and not (
+            isinstance(fields, list) and all(isinstance(f, str) for f in fields)
+        ):
+            raise ValueError(
+                f"Problem {filename}: 'inputSpec.fields' must be a list of strings"
+            )
 
     def _validate_files(self, problem, filename):
         """Presence-only validation stays the house style, plus these cheap

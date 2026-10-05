@@ -19,10 +19,13 @@ import {
   saveWorkingTree, scheduleSync,
 } from './session.js';
 import {
-  startTimer, stopTimer, renderProblem, setOpponentStatus,
-  setSubmitEnabled, renderVerdict, hideVerdict, renderVerdictError,
+  startTimer, stopTimer, setOpponentStatus, setSubmitEnabled,
   showResult, renderMatchup, setTimerLive, setTimerUrgent,
+  setAttemptStatus, attemptSummaryText,
 } from './race.js';
+import {
+  renderProblem, markJudging, recordAttempt, resetAttempts,
+} from './problem-panel.js';
 import { handleResumeState } from './resume.js';
 import { resetAgentPanel, handleAgentResponse, handleAgentStatus } from './agent.js';
 import { applyRaceLayout } from './layout.js';
@@ -112,14 +115,16 @@ function handleMessage(data) {
       countdownOverlay.classList.remove('active');
       // Store problem and render
       state.problem = data.problem;
+      // Reset per-race attempt history (case badges back to NOT RUN) and
+      // agent state before rendering the new problem.
+      state.attemptCount = 0;
+      resetAttempts();
+      setAttemptStatus('');
+      resetAgentPanel();
       renderProblem(state.problem);
       // Initialize editor with starter code
       const lang = languageSelect.value;
       initEditor(state.problem.files || {}, lang);
-      // Reset per-race verdict and agent state
-      state.attemptCount = 0;
-      hideVerdict();
-      resetAgentPanel();
       // A fresh race means a fresh working buffer — nothing to carry over
       // from whatever the previous race last synced.
       state.workingRev = 0;
@@ -143,10 +148,14 @@ function handleMessage(data) {
       // Our attempt is being run against the test cases.
       state.attemptCount = data.attempt || state.attemptCount + 1;
       setSubmitEnabled(false, `Judging attempt ${state.attemptCount}...`);
+      markJudging(state.attemptCount);
+      setAttemptStatus(`Judging attempt ${state.attemptCount}…`);
       break;
 
     case 'submissionResult':
-      renderVerdict(data);
+      recordAttempt(data);
+      setAttemptStatus(attemptSummaryText({ ...data, judged: true }),
+                       data.accepted ? 'accepted' : 'rejected');
       if (data.accepted) {
         setSubmitEnabled(false, ACCEPTED_LABEL);
       } else {
@@ -188,7 +197,7 @@ function handleMessage(data) {
       // Rejected submits (resubmit cooldown, judging still in flight) arrive
       // here — silently dropping them would leave the button stuck.
       if (state.currentView === 'race') {
-        renderVerdictError(data.message);
+        setAttemptStatus(data.message || 'Error', 'rejected');
         setSubmitEnabled(true, SUBMIT_LABEL);
       }
       break;
@@ -232,7 +241,8 @@ playAgainBtn.addEventListener('click', () => {
   setTimerUrgent(false);
   state.timeLimitMs = null;
   state.attemptCount = 0;
-  hideVerdict();
+  resetAttempts();
+  setAttemptStatus('');
   setSubmitEnabled(false, SUBMIT_LABEL);
   findMatchBtn.textContent = 'Find Match';
   findMatchBtn.disabled = false;
