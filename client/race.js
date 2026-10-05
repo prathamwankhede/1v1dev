@@ -3,7 +3,9 @@
    ═══════════════════════════════════════════════════ */
 
 import {
-  raceTimer, opponentStatusBadge, opponentStatusText,
+  raceTopbar, timerCapsule, timerProgressBar, raceTimer,
+  youNameEl, youAvatar, opponentNameEl, opponentAvatar,
+  opponentStatusBadge, opponentStatusText,
   problemTitle, problemDescription, testCasesContainer,
   languageSelect, submitBtn, verdictPanel,
   resultCard, resultIcon, resultTitle, resultSubtitle,
@@ -19,8 +21,14 @@ let raceStartTime = null;
 let timerInterval = null;
 
 // ── Timer ───────────────────────────────────────────
+// Shows the clock in the top bar capsule. With a time limit it counts
+// down (with REM and a draining progress bar); without one it counts up
+// and both are hidden.
 export function startTimer(explicitStartTime) {
   raceStartTime = explicitStartTime || Date.now();
+  const countUp = state.timeLimitMs === null;
+  timerCapsule.classList.toggle('count-up', countUp);
+  raceTopbar.classList.toggle('count-up', countUp);
   timerInterval = setInterval(() => {
     const elapsed = Date.now() - raceStartTime;
     if (state.timeLimitMs === null) {
@@ -31,8 +39,33 @@ export function startTimer(explicitStartTime) {
     // long implementation problem.
     const remaining = Math.max(0, state.timeLimitMs - elapsed);
     raceTimer.textContent = formatTime(remaining);
-    raceTimer.classList.toggle('urgent', remaining <= 30000);
+    timerProgressBar.style.width = `${(remaining / state.timeLimitMs) * 100}%`;
+    setTimerUrgent(remaining <= 30000);
   }, 100);
+}
+
+export function setTimerUrgent(urgent) {
+  raceTimer.classList.toggle('urgent', urgent);
+  timerCapsule.classList.toggle('urgent', urgent);
+  raceTopbar.classList.toggle('urgent', urgent);
+}
+
+// LIVE marker in the timer capsule; hidden while the socket is down.
+export function setTimerLive(live) {
+  timerCapsule.classList.toggle('offline', !live);
+}
+
+// ── Matchup chips ───────────────────────────────────
+function initial(name) {
+  const ch = (name || '').trim().charAt(0);
+  return ch ? ch.toUpperCase() : '?';
+}
+
+export function renderMatchup() {
+  youNameEl.textContent = state.playerName || 'you';
+  youAvatar.textContent = initial(state.playerName || 'you');
+  opponentNameEl.textContent = state.opponentName || 'Opponent';
+  opponentAvatar.textContent = initial(state.opponentName || 'Opponent');
 }
 
 export function stopTimer() {

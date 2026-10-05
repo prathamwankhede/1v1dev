@@ -3,14 +3,15 @@
    ═══════════════════════════════════════════════════ */
 
 import {
-  showView, countdownOverlay, opponentNameEl, languageSelect,
+  showView, countdownOverlay, languageSelect,
   SUBMIT_LABEL, ACCEPTED_LABEL,
 } from './dom.js';
 import { state } from './state.js';
 import {
   startTimer, renderProblem, renderVerdict, hideVerdict,
-  setSubmitEnabled, setOpponentStatus,
+  setSubmitEnabled, setOpponentStatus, renderMatchup,
 } from './race.js';
+import { applyRaceLayout } from './layout.js';
 import { initEditor, bundles, docs } from './editor.js';
 import { loadStoredSession } from './session.js';
 import { resetAgentPanel, restoreTranscript } from './agent.js';
@@ -31,7 +32,8 @@ export function handleResumeState(data) {
   }
 
   state.opponentName = data.opponentName || '';
-  opponentNameEl.textContent = state.opponentName;
+  renderMatchup();
+  applyRaceLayout();
   setOpponentStatus(data.opponentConnected ? 'writing' : 'disconnected');
   resetAgentPanel();
 

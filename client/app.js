@@ -6,7 +6,7 @@
 
 import {
   statusPill, playerCount, lobbyMessage, playerNameInput, findMatchBtn,
-  raceTimer, opponentNameEl, languageSelect,
+  raceTimer, languageSelect,
   countdownOverlay, countdownNumber, playAgainBtn,
   showView, SUBMIT_LABEL, ACCEPTED_LABEL,
 } from './dom.js';
@@ -21,15 +21,17 @@ import {
 import {
   startTimer, stopTimer, renderProblem, setOpponentStatus,
   setSubmitEnabled, renderVerdict, hideVerdict, renderVerdictError,
-  showResult,
+  showResult, renderMatchup, setTimerLive, setTimerUrgent,
 } from './race.js';
 import { handleResumeState } from './resume.js';
 import { resetAgentPanel, handleAgentResponse, handleAgentStatus } from './agent.js';
+import { applyRaceLayout } from './layout.js';
 
 // ── WebSocket Connection ────────────────────────────
 function onOpen() {
   statusPill.textContent = 'Online';
   statusPill.className = 'status-pill online';
+  setTimerLive(true);
 
   // A stored token means there's a race to rejoin — try that before
   // falling back to the normal "enter a name" lobby flow.
@@ -49,6 +51,7 @@ function onOpen() {
 function onClose() {
   statusPill.textContent = 'Offline';
   statusPill.className = 'status-pill offline';
+  setTimerLive(false);
   playerCount.textContent = '0';
   lobbyMessage.textContent = 'Disconnected. Reconnecting...';
   lobbyMessage.classList.add('pulse');
@@ -85,7 +88,8 @@ function handleMessage(data) {
 
     case 'matched':
       state.opponentName = data.opponent;
-      opponentNameEl.textContent = data.opponent;
+      renderMatchup();
+      applyRaceLayout();
       state.hasSubmitted = false;
       setOpponentStatus('writing');
       resetAgentPanel();
@@ -225,7 +229,7 @@ playAgainBtn.addEventListener('click', () => {
   state.problem = null;
   stopTimer();
   raceTimer.textContent = '00:00';
-  raceTimer.classList.remove('urgent');
+  setTimerUrgent(false);
   state.timeLimitMs = null;
   state.attemptCount = 0;
   hideVerdict();

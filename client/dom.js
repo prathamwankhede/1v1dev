@@ -19,7 +19,13 @@ export const playerNameInput = document.getElementById('player-name-input');
 export const findMatchBtn = document.getElementById('find-match-btn');
 
 // Race
+export const raceTopbar = document.getElementById('race-topbar');
+export const timerCapsule = document.getElementById('timer-capsule');
+export const timerProgressBar = document.getElementById('timer-progress-bar');
 export const raceTimer = document.getElementById('race-timer');
+export const youNameEl = document.getElementById('you-name');
+export const youAvatar = document.getElementById('you-avatar');
+export const opponentAvatar = document.getElementById('opponent-avatar');
 export const opponentNameEl = document.getElementById('opponent-name');
 export const opponentStatusBadge = document.getElementById('opponent-status-badge');
 export const opponentStatusText = document.getElementById('opponent-status-text');

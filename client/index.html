@@ -60,122 +60,233 @@
   </div>
 
   <!-- ═══════════════ RACE VIEW ═══════════════ -->
+  <!-- Three-pane IDE layout. Agent elements are only *moved* here: every
+       agent ID is unchanged, because agent.js finds them by ID. -->
   <div id="view-race" class="view">
     <div class="race-layout">
       <!-- Top Bar -->
-      <div class="race-topbar">
+      <header class="race-topbar" id="race-topbar">
         <div class="topbar-left">
-          <div class="logo-sm">1v1<span>dev</span></div>
-          <div class="timer-display">
-            <svg class="timer-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-            </svg>
-            <span id="race-timer">00:00</span>
+          <div class="brand">
+            <span class="brand-mark">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+              </svg>
+            </span>
+            <span class="brand-name">1v1<span>dev</span></span>
           </div>
-        </div>
-        <div class="topbar-center">
-          <span class="vs-label">vs</span>
-          <span id="opponent-name" class="opponent-name">Opponent</span>
-        </div>
-        <div class="topbar-right">
-          <div id="opponent-status-badge" class="opp-status writing">
-            <span class="opp-status-dot"></span>
-            <span id="opponent-status-text">Writing</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Main Race Content -->
-      <div class="race-panels">
-        <!-- Problem Panel -->
-        <div class="panel problem-panel">
-          <div class="panel-header">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-            <h2 id="problem-title">Problem</h2>
-          </div>
-          <div class="panel-body" id="problem-description">
-            <!-- Problem text rendered here -->
-          </div>
-          <div class="test-cases-section">
-            <h3>Example Test Cases</h3>
-            <div id="test-cases-container">
-              <!-- Test cases rendered here -->
+          <div class="matchup" aria-label="Match">
+            <div class="player-chip">
+              <span class="avatar you" id="you-avatar" aria-hidden="true">Y</span>
+              <span class="player-name" id="you-name">you</span>
+              <span class="player-tag">(You)</span>
+              <span class="presence-dot" aria-hidden="true"></span>
+            </div>
+            <span class="vs">VS</span>
+            <div class="player-chip">
+              <span class="avatar opp" id="opponent-avatar" aria-hidden="true">O</span>
+              <span id="opponent-name" class="player-name">Opponent</span>
+              <div id="opponent-status-badge" class="opp-status writing" title="Opponent status">
+                <span class="opp-status-dot" aria-hidden="true"></span>
+                <span id="opponent-status-text">Writing</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Editor Panel -->
-        <div class="panel editor-panel">
-          <div class="panel-header">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+        <div class="timer-capsule" id="timer-capsule" role="timer">
+          <div class="timer-live"><span class="live-dot" aria-hidden="true"></span>LIVE</div>
+          <div class="timer-main">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/>
             </svg>
-            <h2>Your Code</h2>
-            <div class="editor-controls">
-              <select id="language-select" class="lang-select">
+            <span id="race-timer">00:00</span>
+            <span class="timer-rem">REM</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <button id="copilot-toggle" class="topbar-btn" type="button"
+                  aria-controls="copilot-sidebar" aria-expanded="true" title="Show or hide Copilot">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+            </svg>
+            <span>Copilot</span>
+          </button>
+          <div class="settings-anchor">
+            <button id="agent-settings-btn" class="topbar-icon-btn" type="button"
+                    aria-controls="agent-settings" aria-expanded="false"
+                    aria-label="Copilot settings" title="Copilot settings">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+              </svg>
+            </button>
+            <!-- Agent config. Inputs keep their values while hidden, so
+                 agent.js reads them on Ask exactly as before. -->
+            <div id="agent-settings" class="settings-popover" role="dialog" aria-label="Copilot settings" hidden>
+              <div class="ui-label">Copilot settings</div>
+              <select id="agent-type-select" class="lang-select" aria-label="Agent provider">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai-compatible">Custom (OpenAI-compatible)</option>
+              </select>
+              <input type="text" id="agent-model-input" class="agent-input" placeholder="Model (e.g. claude-sonnet-5)" aria-label="Model">
+              <input type="text" id="agent-baseurl-input" class="agent-input agent-baseurl" placeholder="Base URL (custom only)" aria-label="Base URL" style="display:none;">
+              <input type="password" id="agent-apikey-input" class="agent-input" placeholder="API key" autocomplete="off" aria-label="API key">
+              <p class="settings-hint">Used only for this race's Copilot requests.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="timer-progress" aria-hidden="true"><div class="timer-progress-bar" id="timer-progress-bar"></div></div>
+      </header>
+
+      <!-- Panes -->
+      <main class="race-panels">
+        <!-- Problem sidebar -->
+        <aside id="problem-sidebar" class="sidebar sidebar-left" aria-label="Problem">
+          <div class="sidebar-header">
+            <div class="sidebar-title">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+              </svg>
+              Problem
+            </div>
+            <button class="sidebar-collapse" type="button" data-collapse="left"
+                    aria-controls="problem-sidebar" aria-expanded="true" aria-label="Collapse problem panel">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          </div>
+          <div class="sidebar-rail">
+            <button class="sidebar-collapse" type="button" data-collapse="left"
+                    aria-controls="problem-sidebar" aria-expanded="true" aria-label="Expand problem panel">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            <svg class="rail-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </div>
+          <div class="sidebar-body">
+            <div class="problem-content">
+              <h1 class="problem-title">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <span id="problem-title">Problem</span>
+              </h1>
+              <div class="problem-description" id="problem-description">
+                <!-- Problem text rendered here -->
+              </div>
+              <section class="test-cases-section">
+                <h2 class="ui-label">Example Test Cases</h2>
+                <div id="test-cases-container">
+                  <!-- Test cases rendered here -->
+                </div>
+              </section>
+              <!-- Verdict for the player's latest attempt. A rejected attempt
+                   can be fixed and resubmitted. -->
+              <div id="verdict-panel" class="verdict-panel" style="display:none;"></div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Editor -->
+        <section class="editor-pane" aria-label="Code editor">
+          <div class="editor-tabbar">
+            <!-- File tabs for multi-file problems; hidden for a single-file
+                 problem's one-tab bundle (see renderFileTabs in editor.js). -->
+            <div class="file-tabs" id="file-tabs"></div>
+            <div class="lang-picker">
+              <span class="lang-swatch" aria-hidden="true"></span>
+              <select id="language-select" class="lang-select" aria-label="Language">
                 <option value="python">Python</option>
                 <option value="javascript">JavaScript</option>
               </select>
             </div>
           </div>
-          <!-- File tabs for multi-file problems; hidden for a single-file
-               problem's one-tab bundle (see renderFileTabs in editor.js). -->
-          <div class="file-tabs" id="file-tabs"></div>
 
           <div class="editor-wrapper" id="editor-container">
             <!-- CodeMirror mounts here -->
           </div>
 
-          <!-- Agent Panel: the player directs the agent; it never submits on its own -->
-          <div class="agent-panel">
-            <div class="agent-panel-row">
-              <select id="agent-type-select" class="lang-select">
-                <option value="anthropic">Anthropic (Claude)</option>
-                <option value="openai-compatible">Custom (OpenAI-compatible)</option>
-              </select>
-              <input type="text" id="agent-model-input" class="agent-input" placeholder="Model (e.g. claude-sonnet-5)">
-              <input type="text" id="agent-baseurl-input" class="agent-input agent-baseurl" placeholder="Base URL (custom only)" style="display:none;">
-              <input type="password" id="agent-apikey-input" class="agent-input" placeholder="API key" autocomplete="off">
-            </div>
-            <div class="agent-panel-row">
-              <textarea id="agent-instruction-input" class="agent-instruction" placeholder="Tell the agent what to do, e.g. &quot;write a solution using a hash map&quot;..." rows="2"></textarea>
-              <button id="agent-ask-btn" class="btn-agent">Ask Agent</button>
-            </div>
-            <div id="agent-status" class="agent-status"></div>
-          </div>
-
-          <!-- Agent conversation transcript. The player's questions and the
-               agent's full replies (prose + code) stay visible for the
-               whole race; code only reaches the editor via Apply. -->
-          <div id="agent-transcript" class="agent-transcript" style="display:none;">
-            <button id="agent-transcript-toggle" class="agent-transcript-header" type="button">
-              <svg class="transcript-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-              <span id="agent-transcript-title">Conversation</span>
-            </button>
-            <div id="agent-transcript-body" class="agent-transcript-body"></div>
-          </div>
-
-          <!-- Verdict for the player's latest attempt. A rejected attempt
-               can be fixed and resubmitted. -->
-          <div id="verdict-panel" class="verdict-panel" style="display:none;"></div>
-
           <div class="editor-footer">
+            <div class="attempt-status" id="attempt-status"></div>
             <button id="submit-btn" class="btn-submit" disabled>
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
               </svg>
               Submit Solution
             </button>
           </div>
+        </section>
+
+        <!-- Copilot sidebar: the player directs the agent; it never submits on its own -->
+        <aside id="copilot-sidebar" class="sidebar sidebar-right" aria-label="Copilot">
+          <div class="sidebar-header">
+            <div class="sidebar-title">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+              </svg>
+              COPILOT
+              <span class="badge badge-agent">Agent</span>
+            </div>
+            <button class="sidebar-collapse" type="button" data-collapse="right"
+                    aria-controls="copilot-sidebar" aria-expanded="true" aria-label="Collapse Copilot panel">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+          <div class="sidebar-rail">
+            <button class="sidebar-collapse" type="button" data-collapse="right"
+                    aria-controls="copilot-sidebar" aria-expanded="true" aria-label="Expand Copilot panel">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <svg class="rail-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+            </svg>
+          </div>
+          <div class="sidebar-body copilot-body">
+            <!-- Agent conversation transcript. The player's questions and the
+                 agent's full replies (prose + code) stay visible for the
+                 whole race; code only reaches the editor via Apply. -->
+            <div id="agent-transcript" class="agent-transcript" style="display:none;">
+              <button id="agent-transcript-toggle" class="agent-transcript-header" type="button">
+                <svg class="transcript-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+                <span id="agent-transcript-title">Conversation</span>
+              </button>
+              <div id="agent-transcript-body" class="agent-transcript-body"></div>
+            </div>
+            <!-- Shown while #agent-transcript is hidden (see style.css). -->
+            <p class="copilot-empty">Ask Copilot about the problem or your code.<br>Set the provider and key under the key icon.</p>
+          </div>
+          <div class="copilot-composer">
+            <div class="composer-box">
+              <textarea id="agent-instruction-input" class="agent-instruction" rows="2"
+                        placeholder="Ask Copilot about the problem or your code…" aria-label="Ask Copilot"></textarea>
+              <div class="composer-actions">
+                <!-- agent.js writes status and errors here; while it is
+                     empty, the send shortcut agent.js already binds shows. -->
+                <div id="agent-status" class="agent-status" data-hint="⌘/Ctrl + ⏎ to send"></div>
+                <button id="agent-ask-btn" class="btn-agent" type="button">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  Ask
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </main>
+
+      <!-- Status bar -->
+      <footer class="status-bar">
+        <div class="status-group" id="status-left"></div>
+        <div class="status-group">
+          <span>Spaces: 4</span>
+          <span>UTF-8</span>
+          <span>LF</span>
+          <span class="status-strong" id="status-runtime"></span>
         </div>
-      </div>
+      </footer>
     </div>
 
     <!-- Countdown Overlay -->

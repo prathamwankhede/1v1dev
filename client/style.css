@@ -363,275 +363,668 @@ h1 {
 }
 
 /* ═══════════════════════════════════════════════════
-   RACE VIEW
+   RACE VIEW — three-pane IDE layout
+   top bar · problem sidebar | editor | Copilot sidebar · status bar
+   Flat and square-cornered throughout, per the Code Arena redesign.
    ═══════════════════════════════════════════════════ */
 #view-race {
   flex-direction: column;
+  font-family: var(--ui-font-sans);
+  color: var(--ui-text);
+  background: var(--ui-bg);
+}
+
+/* Pinned to the viewport: the race view never scrolls as a page, only its
+   panes do. Without this, any extra height lets CodeMirror's autofocus
+   scroll the top bar out of view. */
+#view-race.active {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* The lobby styles bare header/h1/h2 elements (margins, sizes); none of
+   that applies inside the race view. */
+#view-race header,
+#view-race h1,
+#view-race h2 {
+  margin: 0;
+}
+
+#view-race button {
+  font-family: inherit;
+}
+
+#view-race :focus-visible {
+  outline: 1px solid var(--ui-blue);
+  outline-offset: -1px;
 }
 
 .race-layout {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr) 22px;
   height: 100vh;
   width: 100%;
 }
 
-/* Top Bar */
+/* Small tracked uppercase label used for section headings. */
+.ui-label {
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ui-text-2);
+}
+
+/* ── Top bar ─────────────────────────────────────── */
 .race-topbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.5rem;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-card);
-  flex-shrink: 0;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--ui-bar);
+  border-bottom: 1px solid var(--ui-border);
+  user-select: none;
+  z-index: 30;
 }
 
-.topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-}
-
-.timer-display {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--neon-green);
-  background: rgba(16, 185, 129, 0.08);
-  padding: 0.35rem 0.75rem;
-  border-radius: 9999px;
-  border: 1px solid rgba(16, 185, 129, 0.15);
-}
-
-.timer-icon {
-  opacity: 0.8;
-}
-
-.topbar-center {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.vs-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-dim);
-  font-weight: 600;
-}
-
-.opponent-name {
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--neon-red);
-}
-
+.topbar-left,
 .topbar-right {
   display: flex;
   align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.brand-mark {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #27272a;
+  border: 1px solid var(--ui-border-strong);
+  color: var(--ui-green);
+}
+
+.brand-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ui-text-strong);
+}
+
+.brand-name span {
+  color: var(--ui-green);
+}
+
+/* Match capsule: you vs opponent */
+.matchup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border: 1px solid var(--ui-border-strong);
+  background: #0d1219;
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.player-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.avatar {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.avatar.you {
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: var(--ui-blue);
+}
+
+.avatar.opp {
+  background: rgba(244, 63, 94, 0.2);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: var(--ui-red);
+}
+
+.player-name {
+  color: var(--ui-text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 14ch;
+}
+
+.player-tag {
+  color: var(--ui-text-2);
+  font-size: 10px;
+}
+
+.vs {
+  color: var(--ui-text-3);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.presence-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  background: var(--ui-green);
+}
+
+/* Opponent status: a coloured square plus a compact label. The label keeps
+   the state readable without relying on colour alone. */
 .opp-status {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  gap: 5px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border: 1px solid transparent;
+  letter-spacing: 0.06em;
+  color: var(--ui-text-2);
+  white-space: nowrap;
 }
 
 .opp-status-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  background: var(--ui-green);
 }
 
-.opp-status.writing {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--neon-yellow);
-  border-color: rgba(245, 158, 11, 0.2);
+.opp-status.writing .opp-status-dot { background: var(--ui-green); }
+.opp-status.submitted .opp-status-dot { background: var(--ui-blue); }
+.opp-status.attempted .opp-status-dot { background: var(--ui-amber); }
+.opp-status.disconnected { color: var(--ui-red); }
+.opp-status.disconnected .opp-status-dot { background: var(--ui-red); }
+.opp-status.agent-thinking .opp-status-dot {
+  background: var(--ui-purple);
+  animation: blink 1s infinite;
 }
-
-.opp-status.writing .opp-status-dot {
-  background: var(--neon-yellow);
-  animation: blink 1.5s infinite;
-}
-
-.opp-status.submitted {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--neon-green);
-  border-color: rgba(16, 185, 129, 0.2);
-}
-
-.opp-status.submitted .opp-status-dot {
-  background: var(--neon-green);
-  box-shadow: 0 0 8px var(--neon-green);
-}
-
-.opp-status.disconnected {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--neon-red);
-  border-color: rgba(239, 68, 68, 0.2);
-}
-
-.opp-status.disconnected .opp-status-dot {
-  background: var(--neon-red);
-}
+.opp-status.using-agent .opp-status-dot { background: var(--ui-purple); }
 
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
 
-/* Panels */
-.race-panels {
+/* Centred timer capsule */
+.timer-capsule {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
-  flex: 1;
-  overflow: hidden;
+  align-items: stretch;
+  background: #090d12;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  font-family: var(--ui-font-mono);
+  z-index: 20;
 }
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.problem-panel {
-  width: 40%;
-  border-right: 1px solid var(--border-card);
-  background: var(--bg-panel);
-}
-
-.editor-panel {
-  width: 60%;
-  background: var(--bg-primary);
-}
-
-.panel-header {
+.timer-live {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid var(--border-card);
-  flex-shrink: 0;
-  color: var(--text-secondary);
+  gap: 6px;
+  padding: 0 8px;
+  background: rgba(16, 185, 129, 0.1);
+  border-right: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--ui-green);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
-.panel-header h2 {
-  font-size: 0.9rem;
+.live-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--ui-green);
+  animation: blink 1.5s infinite;
+}
+
+.timer-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px;
+  color: var(--ui-green);
+}
+
+#race-timer {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.timer-rem {
+  font-size: 9px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  flex: 1;
+  letter-spacing: 0.08em;
+  color: var(--ui-text-2);
 }
 
-.panel-body {
+/* Counting up (no time limit): nothing remains, so no REM and no bar. */
+.timer-capsule.count-up .timer-rem,
+.race-topbar.count-up .timer-progress {
+  display: none;
+}
+
+/* Socket down: the race clock keeps running server-side, but this view
+   is not live until the client reconnects. */
+.timer-capsule.offline .timer-live {
+  visibility: hidden;
+}
+
+.timer-capsule.urgent {
+  border-color: rgba(251, 113, 133, 0.5);
+}
+
+.timer-capsule.urgent .timer-main,
+.timer-capsule.urgent #race-timer {
+  color: var(--ui-red);
+}
+
+.timer-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: #18181b;
+  overflow: hidden;
+}
+
+.timer-progress-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399, #38bdf8);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  transition: width 0.2s linear;
+}
+
+.race-topbar.urgent .timer-progress-bar {
+  background: var(--ui-red-solid);
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.6);
+}
+
+/* Top bar buttons */
+.topbar-btn,
+.topbar-icon-btn {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ui-text-2);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.topbar-icon-btn {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+.topbar-btn:hover,
+.topbar-icon-btn:hover,
+.topbar-icon-btn[aria-expanded="true"] {
+  color: var(--ui-text);
+  background: var(--ui-hover);
+  border-color: var(--ui-border-strong);
+}
+
+.topbar-btn svg {
+  color: var(--ui-purple);
+}
+
+/* Agent settings popover (behind the key icon). It only shows and hides
+   the agent config inputs; agent.js reads them on Ask exactly as before. */
+.settings-anchor {
+  position: relative;
+}
+
+.settings-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--ui-raised);
+  border: 1px solid var(--ui-border-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+}
+
+.settings-popover[hidden] {
+  display: none;
+}
+
+.settings-popover .ui-label {
+  margin-bottom: 2px;
+}
+
+.settings-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ui-text-2);
+}
+
+.agent-input,
+.settings-popover .lang-select {
+  width: 100%;
+  background: var(--ui-inset);
+  border: 1px solid var(--ui-border-strong);
+  border-radius: 0;
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.agent-input:focus,
+.settings-popover .lang-select:focus {
+  border-color: rgba(167, 139, 250, 0.6);
+}
+
+/* ── Panes ───────────────────────────────────────── */
+.race-panels {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: flex-basis 0.18s ease;
+}
+
+.sidebar-left {
+  flex-basis: 380px;
+  background: var(--ui-left);
+  border-right: 1px solid var(--ui-border);
+}
+
+.sidebar-right {
+  flex-basis: 320px;
+  background: var(--ui-right);
+  border-left: 1px solid var(--ui-border);
+}
+
+.sidebar-header {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  background: rgba(9, 10, 12, 0.6);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1;
+  min-width: 0;
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ui-text-strong);
+}
+
+.sidebar-title svg {
+  color: var(--ui-text-2);
+  flex-shrink: 0;
+}
+
+.sidebar-right .sidebar-title svg {
+  color: var(--ui-purple);
+}
+
+.badge {
+  padding: 0 4px;
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+
+.badge-agent {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.sidebar-collapse {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ui-text-2);
+  cursor: pointer;
+}
+
+.sidebar-collapse:hover {
+  color: var(--ui-text);
+  background: var(--ui-hover);
+  border-color: var(--ui-border-strong);
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 1.25rem;
-  font-size: 0.9rem;
-  line-height: 1.7;
-  color: var(--text-primary);
+}
+
+/* Collapsed: a 44px rail with only an expand chevron and the pane icon.
+   layout.js refreshes CodeMirror when the editor's width changes. */
+.sidebar-rail {
+  display: none;
+}
+
+.sidebar.collapsed {
+  flex-basis: 44px;
+}
+
+.sidebar.collapsed > :not(.sidebar-rail) {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 6px;
+  color: var(--ui-text-2);
+}
+
+.sidebar-right.collapsed .sidebar-rail svg.rail-icon {
+  color: var(--ui-purple);
+}
+
+/* ── Problem sidebar ─────────────────────────────── */
+.problem-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ui-text);
+}
+
+.problem-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--ui-font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ui-text-strong);
+}
+
+.problem-title svg {
+  color: var(--ui-text-2);
+  flex-shrink: 0;
+}
+
+.problem-description {
   /* pre-wrap, not pre-line: problem specs indent their command tables and
      examples, and pre-line collapses those runs of spaces. */
   white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ui-text);
 }
 
-/* Test Cases */
 .test-cases-section {
-  border-top: 1px solid var(--border-card);
-  padding: 1rem 1.25rem;
-  flex-shrink: 0;
-  max-height: 40%;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ui-border);
 }
 
-.test-cases-section h3 {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-  margin-bottom: 0.75rem;
-  font-weight: 600;
+#test-cases-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .test-case {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 0.75rem;
-  margin-bottom: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
+  border: 1px solid var(--ui-border-strong);
+  background: rgba(9, 10, 12, 0.6);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
 }
 
 .test-case-label {
-  font-family: var(--font-sans);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-  margin-bottom: 0.25rem;
+  font-family: var(--ui-font-mono);
+  font-size: 9px;
   font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ui-text-2);
+  margin: 0 !important;
 }
 
 .test-case pre {
-  color: var(--text-primary);
-  white-space: pre;
   margin: 0;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--ui-text);
+  white-space: pre;
+  overflow-x: auto;
+  font-family: var(--ui-font-mono);
+  font-variant-ligatures: none;
 }
 
-/* Submission verdicts */
+/* Two columns: Input | Expected. The legacy markup is label, pre, label,
+   pre, so place each by order. */
+.test-case > :nth-child(1) { grid-column: 1; grid-row: 1; }
+.test-case > :nth-child(2) { grid-column: 1; grid-row: 2; }
+.test-case > :nth-child(3) { grid-column: 2; grid-row: 1; }
+.test-case > :nth-child(4) { grid-column: 2; grid-row: 2; color: var(--ui-green); }
+
+/* ── Verdicts ────────────────────────────────────── */
 .verdict-panel {
-  flex-shrink: 0;
-  max-height: 30%;
-  overflow-y: auto;
-  padding: 0.85rem 1.25rem;
-  border-top: 1px solid var(--border-card);
-  font-size: 0.82rem;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border-strong);
+  background: rgba(9, 10, 12, 0.6);
+  font-size: 12px;
 }
 
 .verdict-heading {
+  font-family: var(--ui-font-mono);
   font-weight: 600;
-  letter-spacing: 0.02em;
-  margin-bottom: 0.6rem;
+  margin-bottom: 8px;
+}
+
+.verdict-panel.accepted {
+  border-color: rgba(52, 211, 153, 0.3);
 }
 
 .verdict-panel.accepted .verdict-heading {
-  color: var(--neon-green);
+  color: var(--ui-green);
+}
+
+.verdict-panel.rejected {
+  border-color: rgba(251, 113, 133, 0.3);
 }
 
 .verdict-panel.rejected .verdict-heading {
-  color: var(--neon-red);
+  color: var(--ui-red);
 }
 
 .verdict-list {
   list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 4px;
 }
 
 .verdict-row {
   display: grid;
   grid-template-columns: 1.1rem 1fr;
-  gap: 0.4rem 0.5rem;
+  gap: 4px 6px;
   align-items: baseline;
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
+  color: var(--ui-text-2);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
 }
 
 .verdict-mark {
@@ -639,54 +1032,135 @@ h1 {
 }
 
 .verdict-row.pass .verdict-mark {
-  color: var(--neon-green);
+  color: var(--ui-green);
 }
 
 .verdict-row.fail .verdict-mark {
-  color: var(--neon-red);
+  color: var(--ui-red);
 }
 
 .verdict-diff {
   grid-column: 2;
-  margin: 0.2rem 0 0;
-  padding: 0.5rem 0.6rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--text-dim);
-  font-size: 0.74rem;
+  margin: 2px 0 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--ui-text-2);
+  font-size: 11px;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-x: auto;
+  font-variant-ligatures: none;
 }
 
-#race-timer.urgent {
-  color: var(--neon-red);
+/* Import/syntax crash banner — distinct from a normal wrong-answer row so
+   a player doesn't stare at N identical failures with no signal. */
+.verdict-import-error {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: var(--ui-red);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
 }
 
-/* Editor */
-.editor-controls {
-  margin-left: auto;
+/* ── Editor pane ─────────────────────────────────── */
+.editor-pane {
+  flex: 1;
+  /* Without this a flex child refuses to shrink below its content width,
+     so the editor would overflow instead of reclaiming a collapsed rail. */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-center);
 }
 
-.lang-select {
-  background: var(--bg-input);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 0.8rem;
-  padding: 0.3rem 0.6rem;
+.editor-tabbar {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  padding-right: 8px;
+  background: rgba(9, 10, 12, 0.9);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.file-tabs {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.file-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid transparent;
+  color: var(--ui-text-2);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.file-tab:hover {
+  color: var(--ui-text);
+  background: var(--ui-hover);
+}
+
+.file-tab.active {
+  background: #18181b;
+  border-top-color: var(--ui-green);
+  color: var(--ui-text-strong);
+  font-weight: 500;
+}
+
+.file-tab .tab-lock {
+  opacity: 0.6;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.lang-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+}
+
+.lang-swatch {
+  width: 8px;
+  height: 8px;
+  background: var(--ui-amber);
+}
+
+.lang-picker .lang-select {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  padding: 2px 4px;
   outline: none;
   cursor: pointer;
 }
 
-.lang-select:focus {
-  border-color: var(--neon-purple);
+.lang-picker .lang-select option {
+  background: var(--ui-raised);
 }
 
 .editor-wrapper {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
@@ -696,8 +1170,13 @@ h1 {
   font-family: var(--ui-font-mono);
   font-size: 13px;
   line-height: 1.85;
-  /* JetBrains Mono draws >= as ≥. In a race where the bug can be > vs >=,
-     the editor must show exactly the characters typed. */
+}
+
+/* JetBrains Mono draws >= as ≥. In a race where the bug can be > vs >=,
+   the editor must show exactly the characters typed. codemirror.css sets
+   `contextual` on the line elements themselves, so override it there. */
+.cm-s-1v1dev pre.CodeMirror-line,
+.cm-s-1v1dev pre.CodeMirror-line-like {
   font-variant-ligatures: none;
 }
 
@@ -766,233 +1245,153 @@ h1 {
 .cm-s-1v1dev .cm-comment.cm-constant { color: #64748b; }
 .cm-s-1v1dev .cm-string.cm-constant { color: #a3e635; }
 
-/* File Tabs (multi-file problems) */
-.file-tabs {
-  display: flex;
-  gap: 0.25rem;
-  padding: 0.5rem 1.25rem 0;
-  border-bottom: 1px solid var(--border-card);
+/* Editor footer */
+.editor-footer {
+  height: 48px;
   flex-shrink: 0;
-  overflow-x: auto;
-}
-
-.file-tab {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.4rem 0.75rem;
-  border: 1px solid var(--border-card);
-  border-bottom: none;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: var(--bg-input);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  cursor: pointer;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--ui-bar);
+  border-top: 1px solid var(--ui-border);
+}
+
+.attempt-status {
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  color: var(--ui-text-2);
   white-space: nowrap;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.file-tab:hover {
-  color: var(--text-primary);
-}
-
-.file-tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border-color: var(--neon-purple);
-  border-bottom: 1px solid var(--bg-primary);
-  margin-bottom: -1px;
-}
-
-.file-tab .tab-lock {
-  opacity: 0.6;
-  font-size: 0.7rem;
-  line-height: 1;
-}
-
-/* Import/syntax crash banner — distinct from a normal wrong-answer row so
-   a player doesn't stare at N identical failures with no signal. */
-.verdict-import-error {
-  margin-bottom: 0.6rem;
-  padding: 0.5rem 0.6rem;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-sm);
-  color: var(--neon-red);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  white-space: pre-wrap;
-}
-
-/* Agent Panel */
-.agent-panel {
+.btn-submit {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  border-top: 1px solid var(--border-card);
-  background: var(--bg-panel);
-  flex-shrink: 0;
-}
-
-.agent-panel-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.agent-input {
-  background: var(--bg-input);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 0.8rem;
-  padding: 0.4rem 0.6rem;
-  outline: none;
-  flex: 1;
-  min-width: 0;
-}
-
-.agent-input:focus {
-  border-color: var(--neon-purple);
-}
-
-.agent-instruction {
-  background: var(--bg-input);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 0.85rem;
-  padding: 0.5rem 0.7rem;
-  outline: none;
-  resize: none;
-  flex: 1;
-}
-
-.agent-instruction:focus {
-  border-color: var(--neon-purple);
-}
-
-.btn-agent {
-  background: linear-gradient(135deg, var(--neon-purple), var(--neon-blue));
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 1.25rem;
-  font-size: 0.8rem;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  background: var(--ui-green-solid);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  border-radius: 0;
+  color: #fff;
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
   font-weight: 700;
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  align-self: flex-end;
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
-.btn-agent:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(168, 85, 247, 0.4);
+.btn-submit svg {
+  width: 14px;
+  height: 14px;
 }
 
-.btn-agent:disabled {
-  opacity: 0.35;
+.btn-submit:hover:not(:disabled) {
+  background: var(--ui-green-hover);
+}
+
+.btn-submit:active:not(:disabled) {
+  background: #047857;
+}
+
+.btn-submit:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-.agent-status {
-  font-size: 0.75rem;
-  color: var(--text-dim);
-  min-height: 1em;
-}
-
-.agent-status.error {
-  color: var(--neon-red);
-}
-
-/* Agent conversation transcript */
-.agent-transcript {
-  flex-shrink: 0;
-  max-height: 32%;
+/* ── Copilot sidebar ─────────────────────────────── */
+.copilot-body {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border-card);
-  background: var(--bg-panel);
+  padding: 12px;
 }
 
-.agent-transcript.collapsed .agent-transcript-body {
+.copilot-empty {
+  display: none;
+  margin: auto 0;
+  text-align: center;
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ui-text-2);
+}
+
+/* agent.js shows #agent-transcript (inline style.display) once there is a
+   turn, and hides it again when the transcript is empty. Read that state
+   from the attribute, so the empty state needs no agent JS. */
+.agent-transcript[style*="none"] + .copilot-empty {
+  display: block;
+}
+
+.agent-transcript {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Inside a dedicated pane the inline collapse toggle is redundant. It
+   stays in the DOM (agent.js binds it) but is hidden. */
+.agent-transcript-header {
   display: none;
 }
 
-.agent-transcript-header {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.6rem 1.25rem;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.transcript-chevron {
-  transition: transform var(--transition-fast);
-  flex-shrink: 0;
-}
-
-.agent-transcript.collapsed .transcript-chevron {
-  transform: rotate(-90deg);
-}
-
 .agent-transcript-body {
-  overflow-y: auto;
-  padding: 0 1.25rem 0.85rem;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 12px;
 }
 
 .transcript-turn {
-  font-size: 0.82rem;
-  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .transcript-label {
-  font-size: 0.68rem;
-  font-weight: 700;
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-  margin-bottom: 0.15rem;
+  color: var(--ui-text-2);
 }
 
-.turn-player .transcript-label {
-  color: var(--text-secondary);
-}
-
-.turn-agent .transcript-label {
-  color: var(--neon-purple);
-}
-
-.turn-error .transcript-label,
-.turn-error .transcript-text {
-  color: var(--neon-red);
+.turn-agent .transcript-label,
+.turn-pending .transcript-label {
+  color: var(--ui-purple);
 }
 
 .transcript-text {
-  color: var(--text-primary);
+  padding: 8px;
+  background: rgba(24, 24, 27, 0.9);
+  border: 1px solid var(--ui-border-strong);
+  color: var(--ui-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.turn-agent .transcript-text,
 .turn-pending .transcript-text {
-  color: var(--text-dim);
+  background: var(--ui-inset);
+}
+
+.turn-error .transcript-label,
+.turn-error .transcript-text {
+  color: var(--ui-red);
+}
+
+.turn-error .transcript-text {
+  border-color: rgba(244, 63, 94, 0.3);
+}
+
+.turn-pending .transcript-text {
+  color: var(--ui-text-2);
   font-style: italic;
 }
 
@@ -1001,98 +1400,168 @@ h1 {
 }
 
 .transcript-code {
-  margin: 0.4rem 0 0;
-  padding: 0.5rem 0.6rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
+  margin: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 11px;
   line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-x: auto;
-  max-height: 8rem;
-  overflow-y: auto;
+  font-variant-ligatures: none;
+  white-space: pre;
+  overflow: auto;
+  max-height: 12rem;
 }
 
 .btn-apply {
-  margin-top: 0.4rem;
-  background: var(--bg-input);
-  border: 1px solid var(--neon-purple);
-  border-radius: var(--radius-sm);
-  color: var(--neon-purple);
-  font-family: var(--font-sans);
-  font-size: 0.72rem;
-  font-weight: 700;
+  width: 100%;
+  padding: 5px 0;
+  background: var(--ui-raised);
+  border: 1px solid var(--ui-border-strong);
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 0.3rem 0.7rem;
   cursor: pointer;
-  transition: all var(--transition-fast);
 }
 
 .btn-apply:hover {
-  background: rgba(168, 85, 247, 0.15);
+  background: #27272a;
 }
 
-.opp-status.agent-thinking {
-  background: rgba(168, 85, 247, 0.1);
-  color: var(--neon-purple);
-  border-color: rgba(168, 85, 247, 0.2);
-}
-
-.opp-status.agent-thinking .opp-status-dot {
-  background: var(--neon-purple);
-  animation: blink 1s infinite;
-}
-
-.opp-status.using-agent {
-  background: rgba(168, 85, 247, 0.1);
-  color: var(--neon-purple);
-  border-color: rgba(168, 85, 247, 0.2);
-}
-
-.opp-status.using-agent .opp-status-dot {
-  background: var(--neon-purple);
-  box-shadow: 0 0 8px var(--neon-purple);
-}
-
-.editor-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0.75rem 1.25rem;
-  border-top: 1px solid var(--border-card);
-  background: var(--bg-panel);
+/* Composer, pinned to the bottom of the Copilot pane */
+.copilot-composer {
   flex-shrink: 0;
+  padding: 10px;
+  background: var(--ui-bar);
+  border-top: 1px solid var(--ui-border);
 }
 
-.btn-submit {
+.composer-box {
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-inset);
+  transition: border-color 0.15s;
+}
+
+.composer-box:focus-within {
+  border-color: rgba(139, 92, 246, 0.6);
+}
+
+.agent-instruction {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--ui-text);
+  font-family: var(--ui-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-instruction::placeholder {
+  color: var(--ui-text-3);
+}
+
+.composer-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  background: linear-gradient(135deg, var(--neon-green), #059669);
-  color: white;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 6px 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  color: var(--ui-text-2);
+}
+
+.agent-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-status:empty::before {
+  content: attr(data-hint);
+}
+
+.agent-status.error {
+  color: var(--ui-red);
+}
+
+.btn-agent {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--ui-purple-solid);
   border: none;
-  border-radius: var(--radius-sm);
-  padding: 0.65rem 1.5rem;
-  font-size: 0.9rem;
-  font-weight: 700;
-  font-family: var(--font-sans);
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  border-radius: 0;
+  color: #fff;
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  cursor: pointer;
 }
 
-.btn-submit:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);
+.btn-agent:hover:not(:disabled) {
+  background: #8b5cf6;
 }
 
-.btn-submit:disabled {
-  opacity: 0.35;
+.btn-agent:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* ── Status bar ──────────────────────────────────── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--ui-statusbar);
+  border-top: 1px solid var(--ui-border);
+  font-family: var(--ui-font-mono);
+  font-size: 10px;
+  color: var(--ui-text-2);
+  user-select: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-strong {
+  color: var(--ui-text);
+}
+
+/* Narrow top bar: drop the less important chips before anything collides
+   with the absolutely centred timer. */
+@media (max-width: 1100px) {
+  .player-tag,
+  .topbar-btn span {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .brand-name,
+  .opp-status span:last-child {
+    display: none;
+  }
 }
 
 /* ── Countdown Overlay ───────────────────────────── */
@@ -1296,26 +1765,9 @@ h1 {
 /* ═══════════════════════════════════════════════════
    RESPONSIVE
    ═══════════════════════════════════════════════════ */
+/* The race view handles narrow screens by collapsing its sidebars
+   (layout.js), so only the lobby and result screens need rules here. */
 @media (max-width: 768px) {
-  .race-panels {
-    flex-direction: column;
-  }
-
-  .problem-panel,
-  .editor-panel {
-    width: 100%;
-  }
-
-  .problem-panel {
-    max-height: 35vh;
-    border-right: none;
-    border-bottom: 1px solid var(--border-card);
-  }
-
-  .editor-panel {
-    flex: 1;
-  }
-
   .join-form {
     flex-direction: column;
     align-items: center;
